@@ -367,11 +367,11 @@ server <- function(input, output, session) {
     }
 
     project_data(data)
-    save_project_data(data)
+    save_project_data(data)  # Se actualiza el archivo Excel automáticamente
 
     showModal(modalDialog(
       title = "Éxito",
-      "El proyecto ha sido guardado correctamente.",
+      "El proyecto ha sido guardado correctamente y el archivo Excel ha sido actualizado.",
       easyClose = TRUE,
       footer = modalButton("Cerrar")
     ))
@@ -451,20 +451,20 @@ server <- function(input, output, session) {
     content = function(file) {
       tmp_dir <- tempdir()
 
-      investigations_dst <- file.path(tmp_dir, "Investigaciones")
-      if (dir.exists(investigations_dst)) {
-        unlink(investigations_dst, recursive = TRUE, force = TRUE)
-      }
+      # Copiar el archivo project_data.xlsx actualizado al directorio temporal
+      file.copy("project_data.xlsx", file.path(tmp_dir, "project_data.xlsx"), overwrite = TRUE)
 
-      ver_proyectos <- project_data()
-      # Se genera el Excel con los proyectos; este será el que se importe luego
-      writexl::write_xlsx(ver_proyectos, file.path(tmp_dir, "ver_proyectos.xlsx"))
-
+      # Generar el archivo calculo_dias.xlsx
       dias <- days_data()
       dias_calculo <- dias[, c("Nombre", "Revista", "Cuartil",
                                "Dias_Envio_Inicio", "Dias_Respuesta_Envio", "Dias_Aceptado_Respuesta",
                                "Dias_Aceptado_Envio", "Dias_Aceptado_Publicado")]
       writexl::write_xlsx(dias_calculo, file.path(tmp_dir, "calculo_dias.xlsx"))
+
+      investigations_dst <- file.path(tmp_dir, "Investigaciones")
+      if (dir.exists(investigations_dst)) {
+        unlink(investigations_dst, recursive = TRUE, force = TRUE)
+      }
 
       investigations_src <- upload_dir
       dir.create(investigations_dst, showWarnings = FALSE)
@@ -478,24 +478,20 @@ server <- function(input, output, session) {
 
       old_wd <- setwd(tmp_dir)
       on.exit(setwd(old_wd), add = TRUE)
-      zip(file, c("ver_proyectos.xlsx", "calculo_dias.xlsx", "Investigaciones"), flags = "-r9X")
+      zip(file, c("project_data.xlsx", "calculo_dias.xlsx", "Investigaciones"), flags = "-r9X")
     }
   )
 
-  # Nuevo observador para importar datos desde un archivo ZIP
   observeEvent(input$import_zip_btn, {
     req(input$zip_upload)
-    # Validar que el archivo tenga extensión ZIP
     if (file_ext(input$zip_upload$name) != "zip") {
       output$import_status <- renderText("Por favor, suba un archivo ZIP válido.")
       return()
     }
-    # Crear un directorio temporal para extraer el contenido
     temp_import_dir <- tempfile()
     dir.create(temp_import_dir)
     unzip(input$zip_upload$datapath, exdir = temp_import_dir)
 
-    # Verificar y copiar el archivo Excel con los proyectos
     excel_path <- file.path(temp_import_dir, "ver_proyectos.xlsx")
     if (file.exists(excel_path)) {
       file.copy(excel_path, "project_data.xlsx", overwrite = TRUE)
@@ -504,7 +500,6 @@ server <- function(input, output, session) {
       return()
     }
 
-    # Verificar y copiar la carpeta "Investigaciones"
     investigations_path <- file.path(temp_import_dir, "Investigaciones")
     if (dir.exists(investigations_path)) {
       if (dir.exists("Investigaciones")) {
@@ -513,7 +508,6 @@ server <- function(input, output, session) {
       file.copy(investigations_path, ".", recursive = TRUE)
     }
 
-    # Recargar los datos de proyectos y actualizar la interfaz
     project_data(load_project_data())
     updateSelectInput(session, "project_select", choices = project_data()$Nombre)
     updateSelectInput(session, "project_view", choices = c("", project_data()$Nombre))
