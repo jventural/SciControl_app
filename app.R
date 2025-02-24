@@ -145,11 +145,6 @@ ui <- dashboardPage(
                 box(title = "Proyectos Actuales", width = 12, DTOutput("project_table"))
               ),
               fluidRow(
-                box(title = "Guardar Información", width = 12, status = "primary",
-                    actionButton("save_projects", "Guardar Información", class = "btn-primary")
-                )
-              ),
-              fluidRow(
                 box(title = "Eliminar Proyecto", width = 12, status = "danger",
                     selectInput("delete_project", "Seleccione un proyecto para eliminar", choices = NULL),
                     actionButton("delete_button", "Eliminar Proyecto", class = "btn-danger")
@@ -388,17 +383,6 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Éxito",
       "El proyecto ha sido guardado correctamente y la información se ha escrito en el archivo Excel.",
-      easyClose = TRUE,
-      footer = modalButton("Cerrar")
-    ))
-  })
-
-  # Botón para guardar la información desde la pestaña "Ver Proyectos"
-  observeEvent(input$save_projects, {
-    save_project_data(project_data())
-    showModal(modalDialog(
-      title = "Información Guardada",
-      "La información de los proyectos se ha guardado en el archivo Excel.",
       easyClose = TRUE,
       footer = modalButton("Cerrar")
     ))
