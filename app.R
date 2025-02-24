@@ -8,7 +8,14 @@ library(shinyjs)
 library(utils)
 library(tools)  # Para file_ext()
 
-# Crear la carpeta para almacenar los archivos subidos
+# Definir carpeta fija para guardar la información
+data_dir <- "data"
+if (!dir.exists(data_dir)) {
+  dir.create(data_dir)
+}
+data_file <- file.path(data_dir, "project_data.xlsx")
+
+# Carpeta para evidencias
 upload_dir <- "Investigaciones"
 if (!dir.exists(upload_dir)) {
   dir.create(upload_dir)
@@ -28,7 +35,8 @@ create_project_folders <- function(project_name) {
   if (!dir.exists(project_path)) {
     dir.create(project_path)
   }
-  folders <- c("Actas", "Capturas de Pantalla", "Correos Electrónicos", "Fotos de Coordinaciones", "Resumen de la Reunión con AI")
+  folders <- c("Actas", "Capturas de Pantalla", "Correos Electrónicos",
+               "Fotos de Coordinaciones", "Resumen de la Reunión con AI")
   for (folder in folders) {
     folder_path <- file.path(project_path, folder)
     if (!dir.exists(folder_path)) {
@@ -39,11 +47,11 @@ create_project_folders <- function(project_name) {
 }
 
 load_project_data <- function() {
-  excel_file <- "project_data.xlsx"
-  if (file.exists(excel_file)) {
-    project_data <- read_excel(excel_file)
-    required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta", "Revista", "Cuartil", "Estado",
-                          "Grupo", "Progreso", "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
+  if (file.exists(data_file)) {
+    project_data <- read_excel(data_file)
+    required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
+                          "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
+                          "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
                           "Observaciones")
     missing_columns <- setdiff(required_columns, colnames(project_data))
     if (length(missing_columns) > 0) {
@@ -68,13 +76,13 @@ load_project_data <- function() {
       Observaciones = character(),
       stringsAsFactors = FALSE
     )
-    writexl::write_xlsx(project_data, excel_file)
+    writexl::write_xlsx(project_data, data_file)
   }
   return(project_data)
 }
 
 save_project_data <- function(project_data) {
-  writexl::write_xlsx(project_data, "project_data.xlsx")
+  writexl::write_xlsx(project_data, data_file)
 }
 
 ui <- dashboardPage(
@@ -109,7 +117,9 @@ ui <- dashboardPage(
                     dateInput("send_date", "Fecha de Envío", format = "yyyy-mm-dd", value = NULL),
                     textInput("journal", "Revista"),
                     selectInput("quartile", "Cuartil de la Revista", choices = c("Q1", "Q2", "Q3", "Q4")),
-                    selectInput("status", "Estado", choices = c("Introducción", "Método", "Resultados", "Discusión", "Enviado", "Revisión", "Aceptado", "Publicado")),
+                    selectInput("status", "Estado", choices = c("Introducción", "Método", "Resultados",
+                                                                "Discusión", "Enviado", "Revisión",
+                                                                "Aceptado", "Publicado")),
                     selectInput("group", "Grupo", choices = c("Equipo de Investigación", "Semillero de Investigación")),
                     conditionalPanel(
                       condition = "input.status == 'Revisión' || input.status == 'Aceptado' || input.status == 'Publicado'",
@@ -155,7 +165,9 @@ ui <- dashboardPage(
               fluidRow(
                 box(title = "Subir Evidencias para Proyectos", width = 12, status = "primary",
                     selectInput("project_select", "Seleccione un Proyecto", choices = NULL),
-                    selectInput("file_type", "Tipo de Archivo", choices = c("Acta", "Captura de Pantalla", "Correo Electrónico", "Foto de Coordinaciones", "Resumen de la Reunión con AI")),
+                    selectInput("file_type", "Tipo de Archivo",
+                                choices = c("Acta", "Captura de Pantalla", "Correo Electrónico",
+                                            "Foto de Coordinaciones", "Resumen de la Reunión con AI")),
                     fileInput("file_upload", "Subir Archivo", multiple = FALSE),
                     actionButton("upload_btn", "Subir", class = "btn-primary"),
                     verbatimTextOutput("upload_status")
@@ -193,8 +205,9 @@ ui <- dashboardPage(
 
 server <- function(input, output, session) {
 
+  # Cargar los datos desde el archivo persistente
   project_data <- reactiveVal(load_project_data())
-  files_refresh <- reactiveVal(0) # Contador para forzar la actualización de la tabla de archivos
+  files_refresh <- reactiveVal(0)  # Para forzar la actualización de la tabla de archivos
 
   progress_map <- list(
     "Introducción" = 10,
@@ -207,7 +220,6 @@ server <- function(input, output, session) {
     "Publicado" = 100
   )
 
-  # Actualiza las opciones de selección en varios inputs
   observe({
     updateSelectInput(session, "project_select", choices = project_data()$Nombre)
     updateSelectInput(session, "project_view", choices = c("", project_data()$Nombre))
@@ -242,9 +254,7 @@ server <- function(input, output, session) {
         paste("Archivo subido correctamente a:", file_path)
       })
     } else {
-      output$upload_status <- renderText({
-        "Error al subir el archivo."
-      })
+      output$upload_status <- renderText("Error al subir el archivo.")
     }
   })
 
@@ -373,22 +383,22 @@ server <- function(input, output, session) {
     }
 
     project_data(data)
-    save_project_data(data)  # Guarda automáticamente la información
+    save_project_data(data)  # Se guarda la información en el archivo Excel persistente
 
     showModal(modalDialog(
       title = "Éxito",
-      "El proyecto ha sido guardado correctamente y el archivo Excel ha sido actualizado.",
+      "El proyecto ha sido guardado correctamente y la información se ha escrito en el archivo Excel.",
       easyClose = TRUE,
       footer = modalButton("Cerrar")
     ))
   })
 
-  # Botón para guardar información desde el panel "Ver Proyectos"
+  # Botón para guardar la información desde la pestaña "Ver Proyectos"
   observeEvent(input$save_projects, {
     save_project_data(project_data())
     showModal(modalDialog(
       title = "Información Guardada",
-      "La información de los proyectos se ha guardado en project_data.xlsx.",
+      "La información de los proyectos se ha guardado en el archivo Excel.",
       easyClose = TRUE,
       footer = modalButton("Cerrar")
     ))
@@ -409,30 +419,20 @@ server <- function(input, output, session) {
     updateTextAreaInput(session, "observations", value = "")
   })
 
-  # Botón para eliminar archivos seleccionados en la tabla de evidencias
-  observeEvent(input$clear_files_table, {
-    selected_row <- input$files_table_rows_selected
-    if (length(selected_row) > 0 && input$project_view != "") {
-      project_name <- input$project_view
-      project_folder <- file.path(upload_dir, sanitize_project_name(project_name))
-
-      if (dir.exists(project_folder)) {
-        file_list <- list.files(project_folder, recursive = TRUE, full.names = TRUE)
-        if (length(file_list) > 0) {
-          files_df <- data.frame(
-            Archivo = basename(file_list),
-            Carpeta = dirname(file_list),
-            Ruta_Completa = file_list,
-            stringsAsFactors = FALSE
-          )
-          file_to_delete <- files_df$Ruta_Completa[selected_row]
-          if (file.exists(file_to_delete)) {
-            file.remove(file_to_delete)
-          }
-        }
-      }
-      files_refresh(files_refresh() + 1)
-    }
+  # Eliminación de proyectos (ejemplo sencillo)
+  observeEvent(input$delete_button, {
+    req(input$delete_project)
+    data <- project_data()
+    data <- data[data$Nombre != input$delete_project, ]
+    project_data(data)
+    save_project_data(data)
+    updateSelectInput(session, "delete_project", choices = data$Nombre)
+    showModal(modalDialog(
+      title = "Proyecto Eliminado",
+      paste("El proyecto", input$delete_project, "ha sido eliminado."),
+      easyClose = TRUE,
+      footer = modalButton("Cerrar")
+    ))
   })
 
   output$files_table <- renderDT({
@@ -468,8 +468,8 @@ server <- function(input, output, session) {
     content = function(file) {
       tmp_dir <- tempdir()
 
-      # Copiar el archivo project_data.xlsx actualizado al directorio temporal
-      file.copy("project_data.xlsx", file.path(tmp_dir, "project_data.xlsx"), overwrite = TRUE)
+      # Copiar el archivo project_data.xlsx persistente al directorio temporal
+      file.copy(data_file, file.path(tmp_dir, "project_data.xlsx"), overwrite = TRUE)
 
       # Generar el archivo calculo_dias.xlsx
       dias <- days_data()
@@ -509,10 +509,10 @@ server <- function(input, output, session) {
     dir.create(temp_import_dir)
     unzip(input$zip_upload$datapath, exdir = temp_import_dir)
 
-    # Para la importación, se espera encontrar project_data.xlsx
+    # Se espera encontrar project_data.xlsx en el ZIP
     excel_path <- file.path(temp_import_dir, "project_data.xlsx")
     if (file.exists(excel_path)) {
-      file.copy(excel_path, "project_data.xlsx", overwrite = TRUE)
+      file.copy(excel_path, data_file, overwrite = TRUE)
     } else {
       output$import_status <- renderText("El archivo ZIP no contiene 'project_data.xlsx'. Importación cancelada.")
       return()
@@ -520,8 +520,8 @@ server <- function(input, output, session) {
 
     investigations_path <- file.path(temp_import_dir, "Investigaciones")
     if (dir.exists(investigations_path)) {
-      if (dir.exists("Investigaciones")) {
-        unlink("Investigaciones", recursive = TRUE)
+      if (dir.exists(upload_dir)) {
+        unlink(upload_dir, recursive = TRUE)
       }
       file.copy(investigations_path, ".", recursive = TRUE)
     }
