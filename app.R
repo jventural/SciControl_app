@@ -135,6 +135,11 @@ ui <- dashboardPage(
                 box(title = "Proyectos Actuales", width = 12, DTOutput("project_table"))
               ),
               fluidRow(
+                box(title = "Guardar Información", width = 12, status = "primary",
+                    actionButton("save_projects", "Guardar Información", class = "btn-primary")
+                )
+              ),
+              fluidRow(
                 box(title = "Eliminar Proyecto", width = 12, status = "danger",
                     selectInput("delete_project", "Seleccione un proyecto para eliminar", choices = NULL),
                     actionButton("delete_button", "Eliminar Proyecto", class = "btn-danger")
@@ -202,6 +207,7 @@ server <- function(input, output, session) {
     "Publicado" = 100
   )
 
+  # Actualiza las opciones de selección en varios inputs
   observe({
     updateSelectInput(session, "project_select", choices = project_data()$Nombre)
     updateSelectInput(session, "project_view", choices = c("", project_data()$Nombre))
@@ -367,11 +373,22 @@ server <- function(input, output, session) {
     }
 
     project_data(data)
-    save_project_data(data)  # Se actualiza el archivo Excel automáticamente
+    save_project_data(data)  # Guarda automáticamente la información
 
     showModal(modalDialog(
       title = "Éxito",
       "El proyecto ha sido guardado correctamente y el archivo Excel ha sido actualizado.",
+      easyClose = TRUE,
+      footer = modalButton("Cerrar")
+    ))
+  })
+
+  # Botón para guardar información desde el panel "Ver Proyectos"
+  observeEvent(input$save_projects, {
+    save_project_data(project_data())
+    showModal(modalDialog(
+      title = "Información Guardada",
+      "La información de los proyectos se ha guardado en project_data.xlsx.",
       easyClose = TRUE,
       footer = modalButton("Cerrar")
     ))
@@ -392,7 +409,7 @@ server <- function(input, output, session) {
     updateTextAreaInput(session, "observations", value = "")
   })
 
-  # Botón para eliminar archivos seleccionados en la tabla
+  # Botón para eliminar archivos seleccionados en la tabla de evidencias
   observeEvent(input$clear_files_table, {
     selected_row <- input$files_table_rows_selected
     if (length(selected_row) > 0 && input$project_view != "") {
@@ -492,11 +509,12 @@ server <- function(input, output, session) {
     dir.create(temp_import_dir)
     unzip(input$zip_upload$datapath, exdir = temp_import_dir)
 
-    excel_path <- file.path(temp_import_dir, "ver_proyectos.xlsx")
+    # Para la importación, se espera encontrar project_data.xlsx
+    excel_path <- file.path(temp_import_dir, "project_data.xlsx")
     if (file.exists(excel_path)) {
       file.copy(excel_path, "project_data.xlsx", overwrite = TRUE)
     } else {
-      output$import_status <- renderText("El archivo ZIP no contiene 'ver_proyectos.xlsx'. Importación cancelada.")
+      output$import_status <- renderText("El archivo ZIP no contiene 'project_data.xlsx'. Importación cancelada.")
       return()
     }
 
