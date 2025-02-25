@@ -21,6 +21,7 @@ if (!dir.exists(upload_dir)) {
   dir.create(upload_dir)
 }
 
+# Función para sanitizar el nombre del proyecto
 sanitize_project_name <- function(project_name) {
   sanitized_name <- gsub("[:/\\?<>\\|]", "_", project_name)
   if (nchar(sanitized_name) > 50) {
@@ -29,6 +30,7 @@ sanitize_project_name <- function(project_name) {
   return(sanitized_name)
 }
 
+# Función para crear las carpetas del proyecto
 create_project_folders <- function(project_name) {
   sanitized_name <- sanitize_project_name(project_name)
   project_path <- file.path(upload_dir, sanitized_name)
@@ -46,6 +48,7 @@ create_project_folders <- function(project_name) {
   return(project_path)
 }
 
+# Función para cargar los datos del proyecto desde el archivo Excel
 load_project_data <- function() {
   if (file.exists(data_file)) {
     project_data <- read_excel(data_file)
@@ -81,10 +84,12 @@ load_project_data <- function() {
   return(project_data)
 }
 
+# Función para guardar los datos en el archivo Excel (persistente)
 save_project_data <- function(project_data) {
   writexl::write_xlsx(project_data, data_file)
 }
 
+# Interfaz de usuario
 ui <- dashboardPage(
   dashboardHeader(title = "SciControl"),
   dashboardSidebar(
@@ -200,7 +205,7 @@ ui <- dashboardPage(
 
 server <- function(input, output, session) {
 
-  # Cargar los datos desde el archivo persistente
+  # Cargar los datos al iniciar la aplicación (se leen desde el archivo Excel)
   project_data <- reactiveVal(load_project_data())
   files_refresh <- reactiveVal(0)  # Para forzar la actualización de la tabla de archivos
 
@@ -215,12 +220,14 @@ server <- function(input, output, session) {
     "Publicado" = 100
   )
 
+  # Actualizar los selectInputs según los proyectos disponibles
   observe({
     updateSelectInput(session, "project_select", choices = project_data()$Nombre)
     updateSelectInput(session, "project_view", choices = c("", project_data()$Nombre))
     updateSelectInput(session, "delete_project", choices = project_data()$Nombre)
   })
 
+  # Subida de evidencias
   observeEvent(input$upload_btn, {
     req(input$file_upload, input$project_select, input$file_type)
     project_name <- input$project_select
@@ -253,6 +260,7 @@ server <- function(input, output, session) {
     }
   })
 
+  # Renderizar la tabla de proyectos en "Ver Proyectos"
   output$project_table <- renderDT({
     data <- project_data()
     data$Progreso <- sapply(data$Estado, function(estado) {
@@ -266,6 +274,7 @@ server <- function(input, output, session) {
     datatable(data, escape = FALSE, options = list(pageLength = 10), rownames = FALSE)
   })
 
+  # Cálculo de días entre fechas
   days_data <- reactive({
     data <- project_data()
 
@@ -306,6 +315,7 @@ server <- function(input, output, session) {
               options = list(pageLength = 10), rownames = FALSE)
   })
 
+  # Al seleccionar una fila de la tabla, se actualizan los campos en Agregar/Actualizar Proyecto
   observeEvent(input$project_table_rows_selected, {
     selected_row <- input$project_table_rows_selected
     if (!is.null(selected_row)) {
@@ -326,6 +336,7 @@ server <- function(input, output, session) {
     }
   })
 
+  # Guardar o actualizar un proyecto
   observeEvent(input$save_changes, {
     data <- project_data()
     project_index <- which(data$Nombre == input$project_name)
@@ -378,7 +389,7 @@ server <- function(input, output, session) {
     }
 
     project_data(data)
-    save_project_data(data)  # Se guarda la información en el archivo Excel persistente
+    save_project_data(data)  # Se guarda la información en el archivo Excel
 
     showModal(modalDialog(
       title = "Éxito",
@@ -388,22 +399,23 @@ server <- function(input, output, session) {
     ))
   })
 
+  # Limpiar campos de entrada
   observeEvent(input$clear_fields, {
     updateTextInput(session, "project_name", value = "")
     updateDateInput(session, "start_date", value = NULL)
     updateDateInput(session, "send_date", value = NULL)
     updateDateInput(session, "response_date", value = NULL)
     updateTextInput(session, "journal", value = "")
-    updateSelectInput(session, "quartile", selected = "")
-    updateSelectInput(session, "status", selected = "")
-    updateSelectInput(session, "group", selected = "")
+    updateSelectInput(session, "quartile", selected = "Q1")
+    updateSelectInput(session, "status", selected = "Introducción")
+    updateSelectInput(session, "group", selected = "Equipo de Investigación")
     updateDateInput(session, "acceptance_date", value = NULL)
     updateDateInput(session, "publication_date", value = NULL)
-    updateSelectInput(session, "research_line", selected = "")
+    updateSelectInput(session, "research_line", selected = "Pareja")
     updateTextAreaInput(session, "observations", value = "")
   })
 
-  # Eliminación de proyectos (ejemplo sencillo)
+  # Eliminar proyecto (solo mediante botón en "Ver Proyectos")
   observeEvent(input$delete_button, {
     req(input$delete_project)
     data <- project_data()
@@ -419,6 +431,7 @@ server <- function(input, output, session) {
     ))
   })
 
+  # Renderizar la tabla de archivos subidos
   output$files_table <- renderDT({
     files_refresh()
     if (input$project_view == "") {
@@ -445,6 +458,7 @@ server <- function(input, output, session) {
     datatable(files_df, options = list(pageLength = 10), rownames = FALSE, selection = "single")
   })
 
+  # Descargar datos y archivos en un ZIP
   output$download_data <- downloadHandler(
     filename = function() {
       paste0("datos_", Sys.Date(), ".zip")
@@ -452,10 +466,10 @@ server <- function(input, output, session) {
     content = function(file) {
       tmp_dir <- tempdir()
 
-      # Copiar el archivo project_data.xlsx persistente al directorio temporal
+      # Copiar el archivo Excel persistente al directorio temporal
       file.copy(data_file, file.path(tmp_dir, "project_data.xlsx"), overwrite = TRUE)
 
-      # Generar el archivo calculo_dias.xlsx
+      # Generar el archivo de cálculo de días
       dias <- days_data()
       dias_calculo <- dias[, c("Nombre", "Revista", "Cuartil",
                                "Dias_Envio_Inicio", "Dias_Respuesta_Envio", "Dias_Aceptado_Respuesta",
@@ -483,6 +497,7 @@ server <- function(input, output, session) {
     }
   )
 
+  # Importar datos desde un ZIP
   observeEvent(input$import_zip_btn, {
     req(input$zip_upload)
     if (file_ext(input$zip_upload$name) != "zip") {
