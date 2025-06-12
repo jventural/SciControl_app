@@ -526,20 +526,41 @@ ui <- dashboardPage(
   dashboardBody(
     tags$head(
       tags$style(HTML("
-        .skin-blue .main-header .logo { background-color: #003366; color: white; }
-        .skin-blue .main-sidebar { background-color: #004c99; }
-        .box { background-color: #f4f4f9; }
-        .btn-primary { background-color: #336699; border-color: #336699; color: white; }
-        .status-connected { color: #28a745; font-weight: bold; }
-        .status-disconnected { color: #dc3545; font-weight: bold; }
-        .alert-box { padding: 10px; margin: 5px; border-radius: 4px; }
-        .alert-warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; }
-        .alert-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
-        .metric-box { text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px; margin: 5px; }
-        .metric-number { font-size: 2em; font-weight: bold; color: #336699; }
-        .metric-label { font-size: 0.9em; color: #666; }
-      "))
-    ),
+    .skin-blue .main-header .logo { background-color: #003366; color: white; }
+    .skin-blue .main-sidebar { background-color: #004c99; }
+    .box { background-color: #f4f4f9; }
+    .btn-primary { background-color: #336699; border-color: #336699; color: white; }
+    .status-connected { color: #28a745; font-weight: bold; }
+    .status-disconnected { color: #dc3545; font-weight: bold; }
+    .alert-box { padding: 10px; margin: 5px; border-radius: 4px; }
+    .alert-warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; }
+    .alert-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+    .metric-box { text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px; margin: 5px; }
+    .metric-number { font-size: 2em; font-weight: bold; color: #336699; }
+    .metric-label { font-size: 0.9em; color: #666; }
+
+    /* ESTILOS ESPECÍFICOS PARA LA TABLA DE PROYECTOS */
+    .dataTables_wrapper .dataTables_scroll {
+      overflow-x: auto;
+    }
+
+    /* MEJORAR APARIENCIA DE LAS BARRAS DE PROGRESO */
+    .progress-bar-container {
+      background-color: #f3f3f3;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      background-color: #e74c3c;
+      color: white;
+      text-align: center;
+      padding: 5px 0;
+      transition: width 0.3s ease;
+    }
+  "))
+    )
+    ,
     tabItems(
       # Tab: Agregar Proyecto
       tabItem(tabName = "agregar",
@@ -586,15 +607,21 @@ ui <- dashboardPage(
       # Tab: Ver Proyectos
       tabItem(tabName = "ver",
               fluidRow(
-                box(title = "Proyectos Actuales", width = 12, DTOutput("project_table"))
+                box(title = "Proyectos Actuales",
+                    width = 12,
+                    status = "primary",
+                    DTOutput("project_table"))
               ),
               fluidRow(
-                box(title = "Eliminar Proyecto", width = 12, status = "danger",
+                box(title = "Eliminar Proyecto",
+                    width = 12,
+                    status = "danger",
                     selectInput("delete_project", "Seleccione un proyecto para eliminar", choices = NULL),
                     actionButton("delete_button", "Eliminar Proyecto", class = "btn-danger")
                 )
               )
-      ),
+      )
+      ,
 
       # Tab: Análisis de Tiempos MEJORADO
       tabItem(tabName = "dias",
@@ -739,6 +766,9 @@ ui <- dashboardPage(
 # SERVER MEJORADO
 server <- function(input, output, session) {
 Sys.setenv(TZ = "America/Lima")
+
+
+
   # Variables reactivas
   project_data <- reactiveVal(load_project_data())
   files_refresh <- reactiveVal(0)
@@ -802,27 +832,82 @@ Sys.setenv(TZ = "America/Lima")
   # Validación de fechas en tiempo real
   observeEvent(c(input$start_date, input$send_date, input$response_date,
                  input$acceptance_date, input$publication_date), {
+
+                   # VALIDACIÓN ROBUSTA - COMPROBAR QUE LOS INPUTS EXISTAN Y TENGAN VALORES
+                   if (is.null(input$start_date) && is.null(input$send_date) &&
+                       is.null(input$response_date) && is.null(input$acceptance_date) &&
+                       is.null(input$publication_date)) {
+                     return()
+                   }
+
                    alerts <- c()
 
-                   if (!is.null(input$start_date) && !is.null(input$send_date)) {
-                     if (input$send_date < input$start_date) {
-                       alerts <- c(alerts, "⚠️ La fecha de envío debe ser posterior a la fecha de inicio")
-                     }
+                   # VALIDAR FECHA DE INICIO VS ENVÍO
+                   if (!is.null(input$start_date) && !is.null(input$send_date) &&
+                       length(input$start_date) > 0 && length(input$send_date) > 0 &&
+                       !is.na(input$start_date) && !is.na(input$send_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$send_date) < as.Date(input$start_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de envío debe ser posterior a la fecha de inicio")
+                       }
+                     }, error = function(e) {
+                       # Ignorar errores de conversión de fecha
+                     })
                    }
 
-                   if (!is.null(input$send_date) && !is.null(input$response_date)) {
-                     if (input$response_date < input$send_date) {
-                       alerts <- c(alerts, "⚠️ La fecha de respuesta debe ser posterior a la fecha de envío")
-                     }
+                   # VALIDAR FECHA DE ENVÍO VS RESPUESTA
+                   if (!is.null(input$send_date) && !is.null(input$response_date) &&
+                       length(input$send_date) > 0 && length(input$response_date) > 0 &&
+                       !is.na(input$send_date) && !is.na(input$response_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$response_date) < as.Date(input$send_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de respuesta debe ser posterior a la fecha de envío")
+                       }
+                     }, error = function(e) {
+                       # Ignorar errores de conversión de fecha
+                     })
                    }
 
+                   # VALIDAR FECHA DE RESPUESTA VS ACEPTACIÓN
+                   if (!is.null(input$response_date) && !is.null(input$acceptance_date) &&
+                       length(input$response_date) > 0 && length(input$acceptance_date) > 0 &&
+                       !is.na(input$response_date) && !is.na(input$acceptance_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$acceptance_date) < as.Date(input$response_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de aceptación debe ser posterior a la fecha de respuesta")
+                       }
+                     }, error = function(e) {
+                       # Ignorar errores de conversión de fecha
+                     })
+                   }
+
+                   # VALIDAR FECHA DE ACEPTACIÓN VS PUBLICACIÓN
+                   if (!is.null(input$acceptance_date) && !is.null(input$publication_date) &&
+                       length(input$acceptance_date) > 0 && length(input$publication_date) > 0 &&
+                       !is.na(input$acceptance_date) && !is.na(input$publication_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$publication_date) < as.Date(input$acceptance_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de publicación debe ser posterior a la fecha de aceptación")
+                       }
+                     }, error = function(e) {
+                       # Ignorar errores de conversión de fecha
+                     })
+                   }
+
+                   # RENDERIZAR ALERTAS SOLO SI HAY ALGO QUE MOSTRAR
                    output$date_validation_alerts <- renderUI({
                      if (length(alerts) > 0) {
                        div(class = "alert-box alert-warning",
                            HTML(paste(alerts, collapse = "<br>")))
+                     } else {
+                       NULL
                      }
                    })
-                 })
+                 }, ignoreNULL = FALSE, ignoreInit = FALSE)
 
   # Sistema de subida de archivos
   output$upload_system_status <- renderText({
@@ -836,12 +921,21 @@ Sys.setenv(TZ = "America/Lima")
   # Actualizar selectInputs dinámicamente
   observe({
     data <- project_data()
+
+    # VALIDAR QUE data NO ESTÉ VACÍO
+    if (is.null(data) || nrow(data) == 0) return()
+
+    # VALIDAR QUE LA COLUMNA EXISTA
+    if (!"Nombre" %in% colnames(data)) return()
+
     data$Nombre <- as.character(data$Nombre)
     display_names <- ifelse(is.na(data$Nombre) | data$Nombre == "", "(sin nombre)", data$Nombre)
+
     updateSelectInput(session, "delete_project", choices = display_names)
     updateSelectInput(session, "project_select", choices = data$Nombre)
     updateSelectInput(session, "project_view", choices = c("", data$Nombre))
   })
+
 
   # NUEVA TABLA DE MÉTRICAS RESUMIDAS
   output$metrics_summary <- renderUI({
@@ -1092,30 +1186,109 @@ Sys.setenv(TZ = "America/Lima")
 
   # TABLA DE PROYECTOS CON ALERTAS
   output$project_table <- renderDT({
-    data <- days_data_improved()
-    if (nrow(data) == 0) return(datatable(data.frame(), options = list(pageLength = 10)))
+    cat("=== RENDERIZANDO TABLA COMPLETA ===\n")
 
-    data$Progreso <- sapply(data$Estado, function(estado) {
-      p <- progress_map[[estado]]
-      sprintf(
-        '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px;">
-           <div style="width:%d%%; background-color:#e74c3c; color:white; text-align:center; padding:5px 0; border-radius:5px;">%d%%</div>
-         </div>', p, p)
+    # Obtener datos validados
+    data <- tryCatch({
+      days_data_improved()
+    }, error = function(e) {
+      cat("Error en days_data_improved, usando datos básicos:", e$message, "\n")
+      project_data()
     })
 
-    # Agregar indicador de alertas
-    data$Estado_Display <- ifelse(data$Alertas != "",
-                                  paste0(data$Estado, " ⚠️"),
-                                  data$Estado)
+    if (nrow(data) == 0) {
+      return(datatable(
+        data.frame(Mensaje = "No hay proyectos para mostrar"),
+        options = list(pageLength = 10),
+        rownames = FALSE
+      ))
+    }
 
-    display_cols <- c("Nombre", "Estado_Display", "Revista", "Cuartil", "Grupo", "Progreso", "Linea_Investigacion")
-    display_data <- data[, display_cols]
-    colnames(display_data)[2] <- "Estado"
+    cat("Procesando", nrow(data), "proyectos\n")
 
-    datatable(display_data, escape = FALSE, options = list(pageLength = 10), rownames = FALSE) %>%
-      formatStyle("Estado",
-                  backgroundColor = styleEqual(grep("⚠️", data$Estado_Display, value = TRUE),
-                                               rep("#fff3cd", sum(grepl("⚠️", data$Estado_Display)))))
+    # Crear barras de progreso
+    data$Progreso_Barra <- sapply(data$Estado, function(estado) {
+      p <- progress_map[[estado]]
+      if (is.null(p)) p <- 0
+
+      # Color según el progreso
+      color <- if (p >= 90) "#28a745"      # Verde para casi completado
+      else if (p >= 70) "#ffc107"  # Amarillo para en progreso avanzado
+      else if (p >= 40) "#fd7e14"  # Naranja para progreso medio
+      else "#dc3545"               # Rojo para inicio
+
+      sprintf(
+        '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px; height:22px; border:1px solid #ddd;">
+         <div style="width:%d%%; background-color:%s; color:white; text-align:center; line-height:22px; border-radius:4px; font-size:12px; font-weight:bold;">%d%%</div>
+       </div>', p, color, p)
+    })
+
+    # Agregar indicadores de alerta si existen
+    if ("Alertas" %in% colnames(data)) {
+      data$Estado_Display <- ifelse(!is.na(data$Alertas) & data$Alertas != "",
+                                    paste0(data$Estado, " ⚠️"),
+                                    data$Estado)
+    } else {
+      data$Estado_Display <- data$Estado
+    }
+
+    # Seleccionar columnas para mostrar
+    display_cols <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
+                      "Revista", "Cuartil", "Estado_Display", "Grupo", "Progreso_Barra",
+                      "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion")
+
+    # Verificar qué columnas existen
+    available_cols <- intersect(display_cols, colnames(data))
+    display_data <- data[, available_cols, drop = FALSE]
+
+    # Renombrar columnas para mejor presentación
+    col_names <- colnames(display_data)
+    col_names[col_names == "Estado_Display"] <- "Estado"
+    col_names[col_names == "Progreso_Barra"] <- "Progreso"
+    col_names[col_names == "Linea_Investigacion"] <- "Línea de Investigación"
+    colnames(display_data) <- col_names
+
+    cat("Creando tabla con columnas:", paste(colnames(display_data), collapse = ", "), "\n")
+
+    # Crear tabla
+    dt <- datatable(
+      display_data,
+      escape = FALSE,
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE,
+        autoWidth = FALSE,
+        dom = 'Bfrtip',
+        columnDefs = list(
+          list(width = '200px', targets = 0),     # Nombre
+          list(width = '100px', targets = 1:3),   # Fechas
+          list(width = '120px', targets = 4),     # Revista
+          list(width = '60px', targets = 5),      # Cuartil
+          list(width = '100px', targets = 6),     # Estado
+          list(width = '120px', targets = 7),     # Grupo
+          list(width = '150px', targets = 8),     # Progreso
+          list(width = '100px', targets = 9:10),  # Fechas aceptado/publicado
+          list(width = '150px', targets = 11)     # Línea investigación
+        )
+      ),
+      rownames = FALSE,
+      selection = 'single'
+    )
+
+    # Aplicar estilos condicionales si hay alertas
+    if ("Alertas" %in% colnames(data)) {
+      rows_with_alerts <- which(!is.na(data$Alertas) & data$Alertas != "")
+      if (length(rows_with_alerts) > 0) {
+        dt <- dt %>% formatStyle(
+          "Estado",
+          target = "row",
+          backgroundColor = styleEqual(rows_with_alerts, rep("#fff3cd", length(rows_with_alerts)))
+        )
+      }
+    }
+
+    cat("Tabla creada exitosamente\n")
+    return(dt)
   })
 
   # Sincronización manual desde Dropbox
@@ -1579,20 +1752,76 @@ Sys.setenv(TZ = "America/Lima")
   # SELECCIÓN DE PROYECTO PARA EDITAR
   observeEvent(input$project_table_rows_selected, {
     sel <- input$project_table_rows_selected
-    if (!is.null(sel)) {
-      proj <- project_data()[sel, ]
-      updateTextInput(session, "project_name", value = proj$Nombre)
-      updateDateInput(session, "start_date", value = as.Date(proj$Fecha_Inicio))
-      updateDateInput(session, "send_date", value = as.Date(proj$Fecha_Envio))
-      updateDateInput(session, "response_date", value = as.Date(proj$Fecha_Respuesta))
-      updateTextInput(session, "journal", value = proj$Revista)
-      updateSelectInput(session, "quartile", selected = proj$Cuartil)
-      updateSelectInput(session, "status", selected = proj$Estado)
-      updateSelectInput(session, "group", selected = proj$Grupo)
-      updateDateInput(session, "acceptance_date", value = as.Date(proj$Fecha_Aceptado))
-      updateDateInput(session, "publication_date", value = as.Date(proj$Fecha_Publicado))
-      updateTextInput(session, "research_line", value = proj$Linea_Investigacion)
-      updateTextAreaInput(session, "observations", value = proj$Observaciones)
+
+    if (!is.null(sel) && length(sel) > 0) {
+      data <- project_data()
+
+      # Validar que la selección sea válida
+      if (sel <= nrow(data)) {
+        proj <- data[sel, ]
+
+        # Actualizar campos con validación segura
+        updateTextInput(session, "project_name", value = as.character(proj$Nombre %||% ""))
+
+        # Fechas con validación
+        tryCatch({
+          if (!is.na(proj$Fecha_Inicio) && proj$Fecha_Inicio != "") {
+            updateDateInput(session, "start_date", value = as.Date(proj$Fecha_Inicio))
+          } else {
+            updateDateInput(session, "start_date", value = NULL)
+          }
+        }, error = function(e) {
+          updateDateInput(session, "start_date", value = NULL)
+        })
+
+        tryCatch({
+          if (!is.na(proj$Fecha_Envio) && proj$Fecha_Envio != "") {
+            updateDateInput(session, "send_date", value = as.Date(proj$Fecha_Envio))
+          } else {
+            updateDateInput(session, "send_date", value = NULL)
+          }
+        }, error = function(e) {
+          updateDateInput(session, "send_date", value = NULL)
+        })
+
+        tryCatch({
+          if (!is.na(proj$Fecha_Respuesta) && proj$Fecha_Respuesta != "") {
+            updateDateInput(session, "response_date", value = as.Date(proj$Fecha_Respuesta))
+          } else {
+            updateDateInput(session, "response_date", value = NULL)
+          }
+        }, error = function(e) {
+          updateDateInput(session, "response_date", value = NULL)
+        })
+
+        tryCatch({
+          if (!is.na(proj$Fecha_Aceptado) && proj$Fecha_Aceptado != "") {
+            updateDateInput(session, "acceptance_date", value = as.Date(proj$Fecha_Aceptado))
+          } else {
+            updateDateInput(session, "acceptance_date", value = NULL)
+          }
+        }, error = function(e) {
+          updateDateInput(session, "acceptance_date", value = NULL)
+        })
+
+        tryCatch({
+          if (!is.na(proj$Fecha_Publicado) && proj$Fecha_Publicado != "") {
+            updateDateInput(session, "publication_date", value = as.Date(proj$Fecha_Publicado))
+          } else {
+            updateDateInput(session, "publication_date", value = NULL)
+          }
+        }, error = function(e) {
+          updateDateInput(session, "publication_date", value = NULL)
+        })
+
+        # Otros campos
+        updateTextInput(session, "journal", value = as.character(proj$Revista %||% ""))
+        updateSelectInput(session, "quartile", selected = as.character(proj$Cuartil %||% "Q1"))
+        updateSelectInput(session, "status", selected = as.character(proj$Estado %||% "Introducción"))
+        updateSelectInput(session, "group", selected = as.character(proj$Grupo %||% "Equipo de Investigación"))
+        updateTextInput(session, "research_line", value = as.character(proj$Linea_Investigacion %||% ""))
+        updateTextAreaInput(session, "observations", value = as.character(proj$Observaciones %||% ""))
+      }
     }
   })
 
@@ -1829,6 +2058,104 @@ Sys.setenv(TZ = "America/Lima")
     updateDateInput(session, "publication_date", value = NULL)
     updateTextInput(session, "research_line", value = "")
     updateTextAreaInput(session, "observations", value = "")
+  })
+
+  # TABLA DE ARCHIVOS EN DROPBOX (VERSIÓN AJUSTADA)
+  output$files_table <- renderDT({
+    files_refresh()
+
+    if (input$project_view == "" || !STORAGE_CONFIGURED) {
+      empty <- data.frame(
+        Nombre = character(),
+        Fecha_Inicio = character(),
+        Fecha_Envio = character(),
+        Fecha_Respuesta = character(),
+        Revista = character(),
+        Cuartil = character(),
+        Estado = character(),
+        Grupo = character(),
+        Progreso = character(),
+        Fecha_Aceptado = character(),
+        Fecha_Publicado = character(),
+        Linea_Investigacion = character()
+      )
+      return(datatable(empty, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE, selection = "single"))
+    }
+
+    project_name <- input$project_view
+
+    # Obtener datos del proyecto seleccionado
+    data <- project_data()
+    selected_project <- data[data$Nombre == project_name, ]
+
+    if (nrow(selected_project) == 0) {
+      empty <- data.frame(
+        Nombre = character(),
+        Fecha_Inicio = character(),
+        Fecha_Envio = character(),
+        Fecha_Respuesta = character(),
+        Revista = character(),
+        Cuartil = character(),
+        Estado = character(),
+        Grupo = character(),
+        Progreso = character(),
+        Fecha_Aceptado = character(),
+        Fecha_Publicado = character(),
+        Linea_Investigacion = character()
+      )
+      return(datatable(empty, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE, selection = "single"))
+    }
+
+    # Crear la barra de progreso HTML
+    progress_value <- as.numeric(selected_project$Progreso)
+    if (is.na(progress_value)) progress_value <- 0
+
+    progress_html <- sprintf(
+      '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px;">
+       <div style="width:%d%%; background-color:#e74c3c; color:white; text-align:center; padding:5px 0; border-radius:5px;">%d%%</div>
+     </div>',
+      progress_value, progress_value
+    )
+
+    # Preparar datos para mostrar
+    display_data <- data.frame(
+      Nombre = as.character(selected_project$Nombre),
+      Fecha_Inicio = as.character(selected_project$Fecha_Inicio %||% ""),
+      Fecha_Envio = as.character(selected_project$Fecha_Envio %||% ""),
+      Fecha_Respuesta = as.character(selected_project$Fecha_Respuesta %||% ""),
+      Revista = as.character(selected_project$Revista %||% ""),
+      Cuartil = as.character(selected_project$Cuartil %||% ""),
+      Estado = as.character(selected_project$Estado %||% ""),
+      Grupo = as.character(selected_project$Grupo %||% ""),
+      Progreso = progress_html,
+      Fecha_Aceptado = as.character(selected_project$Fecha_Aceptado %||% ""),
+      Fecha_Publicado = as.character(selected_project$Fecha_Publicado %||% ""),
+      Linea_Investigacion = as.character(selected_project$Linea_Investigacion %||% ""),
+      stringsAsFactors = FALSE
+    )
+
+    # Crear tabla con scroll horizontal para manejar muchas columnas
+    return(datatable(
+      display_data,
+      options = list(
+        pageLength = 10,
+        scrollX = TRUE,
+        autoWidth = TRUE,
+        columnDefs = list(
+          list(width = '200px', targets = 0), # Nombre
+          list(width = '100px', targets = c(1,2,3,9,10)), # Fechas
+          list(width = '150px', targets = 4), # Revista
+          list(width = '80px', targets = 5), # Cuartil
+          list(width = '100px', targets = 6), # Estado
+          list(width = '120px', targets = 7), # Grupo
+          list(width = '120px', targets = 8), # Progreso
+          list(width = '200px', targets = 11) # Línea de investigación
+        )
+      ),
+      rownames = FALSE,
+      selection = "single",
+      escape = FALSE # Importante para que se renderice el HTML del progreso
+    ))
   })
 
   # Eliminar proyecto
