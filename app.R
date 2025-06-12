@@ -14,10 +14,13 @@ library(ggplot2)
 library(plotly)
 library(dplyr)
 
-# CONFIGURACIÓN DE DROPBOX (mantener tu token)
+# Operador auxiliar
+`%||%` <- function(a, b) if (is.null(a)) b else a
+
+# CONFIGURACIÓN DE DROPBOX
 DROPBOX_ACCESS_TOKEN <- "sl.u.AFyq3zXGMyjN83cQGctTJlUFmaElmzxhsMIxVq8ueSkh_vLq0jeClobsSI68WZbXT7gPzqei-SvwSL_7NQWxTpTsFG7eKru4l1S06fitEJOwGlEJ41K2nluJiG_RItjftSrcKTxR-S3ARU-NQcNOrUFjx5mH5Vj4sK8wFrsdU6vsISxghoOksQ9-WLd0I9HqezZjtqaZ7cBj7XymN3LXtqrAMCyEEt0tGOWyO8klv2MOaA4VmDmZEwFl4IkDPVBxArTHavXyTAzXFowEcDGrx5eoqjj8ZxRnZ-O5MZUsHxuJolXY-GiBNYFMLRgaYZ8D7egdVF91866cA9EBWdleqzqf1bCjHZtTvmti_oTDn4SStQkyM-XL4j-lZM8xbz6GNLYkmy2AdAS2325sK6swHp72m98BL5B8TZKMgFRTd_SeSPV-svGFzRviAWxMuiYOUctTynmPdwbnrs_SCTIuTd9mb89HGu-_q5Z9EUR0PlO7Bb9RYdQ0HyVhN52KYoiVls-AgOhyr81uyJqJ73y1v62yasWw7urmr-1xHQltotMH76WYCr_CEWydyhPLz8ONPJi6HitETCvvvhP-0ogQbzRgvy8wLHa6ryiVtZfYepkMZ6meYBgbL8LeUa_0X5MI4eGJz5F2Dqt6dI_FHHCQoGc_gGxN45tLjBpsRc5DbvQJobo0S-UD0tbYm4PN2namTgoaF9c9rhj1jtNu-qKbB7dp1FQn56yEQ8jt4LX7XJrXy3hk5Mo0VzYQlGSVVF62hDZ5b0tdEX6g9Xj3SpP8teH9veVMFd4IigiUdNnuaeoHcWDlvbiI-eqJyN4oz4-sDvPmXxEQQZpfAdc9Rff3c_MdZ4LNOMUJZ6ePWUUYpqzHRsNYFna2gOcnsX0Q-fduvgN80ZrQOWdbQpzsCQKXmqP6zyDOmzIjVKg_sAqNyTmsYkfizng6oc9UG90YX7pRVdkPGwT0BYRumVDGI3gCziFtCk0I6TrQL5hSGAXA_TF6j1EO6OEve1xkxXxOnunqPgkkizlRY9Lp3p2BlW7_d36mZD2p8VaUE4Zm841AvC7pdwFgRhVdVW9BkY4_8l0d6MGByalwJSNsyg8LdLuph_zG-mUDYVxuiyg0JK3aF43EnrS1d6wnbAt0ZGIpaDNjoaALHp2k5R0gel0yo34EGWMIS3IY__4Oyo06iLF4a_GvCqBn2sIghFuUFpvR9s8GVAEInpMZ_3q8BZ4BBdloH3k0Yk0ZdjAVQLe9gwjkgNqWgtkaCnnNaz2HgMrqi1Rto2dTAEzCADw1jf9mTlw7JyuwDGfiV_sEQ3Bt83kKpx0iRg"
 
-# Funciones de Dropbox (mantener las mismas)
+# Función para verificar configuración de Dropbox
 check_dropbox_config <- function() {
   if (DROPBOX_ACCESS_TOKEN == "tu_dropbox_access_token_aqui" ||
       DROPBOX_ACCESS_TOKEN == "") {
@@ -26,6 +29,7 @@ check_dropbox_config <- function() {
   return(TRUE)
 }
 
+# Función para subir archivo a Dropbox
 upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
   tryCatch({
     timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
@@ -95,6 +99,7 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
   })
 }
 
+# Función para listar archivos de Dropbox por carpeta
 list_dropbox_files <- function(folder_path = NULL) {
   tryCatch({
     search_path <- if (is.null(folder_path)) "" else paste0("/", folder_path)
@@ -137,6 +142,7 @@ list_dropbox_files <- function(folder_path = NULL) {
   })
 }
 
+# Función para eliminar archivo de Dropbox
 delete_dropbox_file <- function(file_path) {
   tryCatch({
     response <- POST(
@@ -154,20 +160,28 @@ delete_dropbox_file <- function(file_path) {
   })
 }
 
-# Configuración
+# Aumentar el límite de tamaño de archivo a 100 MB
 options(shiny.maxRequestSize = 100*1024^2)
+
+# Definir carpeta local para el archivo de datos
 data_dir <- "data"
-if (!dir.exists(data_dir)) dir.create(data_dir)
+if (!dir.exists(data_dir)) {
+  dir.create(data_dir)
+}
 data_file <- file.path(data_dir, "project_data.xlsx")
 
+# Función para sanitizar el nombre del proyecto
 sanitize_project_name <- function(project_name) {
   name <- gsub("[:/\\\\?<>\\|*\"'\\s]", "_", project_name)
   name <- gsub("_{2,}", "_", name)
   name <- trimws(name, whitespace = "_")
-  if (nchar(name) > 30) name <- substr(name, 1, 30)
+  if (nchar(name) > 30) {
+    name <- substr(name, 1, 30)
+  }
   return(name)
 }
 
+# FUNCIÓN MEJORADA PARA CARGAR DATOS CON TIPOS CONSISTENTES
 load_project_data <- function() {
   if (file.exists(data_file)) {
     project_data <- read_excel(data_file)
@@ -175,11 +189,48 @@ load_project_data <- function() {
                           "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
                           "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
                           "Observaciones")
+
+    # Agregar columnas faltantes
     missing_columns <- setdiff(required_columns, colnames(project_data))
     if (length(missing_columns) > 0) {
-      for (col in missing_columns) project_data[[col]] <- NA
+      for (col in missing_columns) {
+        project_data[[col]] <- NA
+      }
     }
+
+    # NORMALIZAR TIPOS DE DATOS - CONVERTIR FECHAS A CHARACTER
+    date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
+                      "Fecha_Aceptado", "Fecha_Publicado")
+
+    for (col in date_columns) {
+      if (col %in% colnames(project_data)) {
+        if (inherits(project_data[[col]], c("POSIXct", "POSIXt", "Date"))) {
+          # Convertir fechas datetime a character
+          project_data[[col]] <- as.character(as.Date(project_data[[col]]))
+        } else if (is.character(project_data[[col]])) {
+          # Validar formato de fechas character y limpiar
+          project_data[[col]] <- sapply(project_data[[col]], function(x) {
+            if (is.na(x) || x == "" || x == "NA") return(NA_character_)
+            tryCatch({
+              fecha <- as.Date(x)
+              if (!is.na(fecha)) return(as.character(fecha))
+              return(NA_character_)
+            }, error = function(e) NA_character_)
+          })
+        }
+      }
+    }
+
+    # Asegurar tipos correctos para otras columnas
+    if ("Progreso" %in% colnames(project_data)) {
+      project_data$Progreso <- as.numeric(project_data$Progreso)
+    }
+
+    # Convertir a data.frame estándar para evitar conflictos con tibble
+    project_data <- as.data.frame(project_data, stringsAsFactors = FALSE)
+
   } else {
+    # Crear estructura inicial
     project_data <- data.frame(
       Nombre = character(),
       Fecha_Inicio = character(),
@@ -201,19 +252,41 @@ load_project_data <- function() {
   return(project_data)
 }
 
+# Función para guardar los datos
 save_project_data <- function(project_data) {
   writexl::write_xlsx(project_data, data_file)
 }
 
+# Verificar configuración al inicio
 STORAGE_CONFIGURED <- check_dropbox_config()
 
-# FUNCIÓN MEJORADA PARA VALIDAR FECHAS
+# FUNCIÓN MEJORADA PARA VALIDAR FECHAS CON MANEJO DE TIPOS
 validate_dates <- function(data) {
-  data$Fecha_Inicio <- as.Date(data$Fecha_Inicio)
-  data$Fecha_Envio <- as.Date(data$Fecha_Envio)
-  data$Fecha_Respuesta <- as.Date(data$Fecha_Respuesta)
-  data$Fecha_Aceptado <- as.Date(data$Fecha_Aceptado)
-  data$Fecha_Publicado <- as.Date(data$Fecha_Publicado)
+  # Función auxiliar para convertir fechas de manera segura
+  safe_date_convert <- function(x) {
+    if (is.na(x) || x == "" || x == "NA") return(as.Date(NA))
+    tryCatch({
+      if (inherits(x, c("POSIXct", "POSIXt", "Date"))) {
+        return(as.Date(x))
+      } else {
+        return(as.Date(x))
+      }
+    }, error = function(e) as.Date(NA))
+  }
+
+  # Convertir todas las fechas de manera segura
+  data$Fecha_Inicio_Date <- sapply(data$Fecha_Inicio, safe_date_convert)
+  data$Fecha_Envio_Date <- sapply(data$Fecha_Envio, safe_date_convert)
+  data$Fecha_Respuesta_Date <- sapply(data$Fecha_Respuesta, safe_date_convert)
+  data$Fecha_Aceptado_Date <- sapply(data$Fecha_Aceptado, safe_date_convert)
+  data$Fecha_Publicado_Date <- sapply(data$Fecha_Publicado, safe_date_convert)
+
+  # Convertir de numeric a Date (resultado de sapply)
+  data$Fecha_Inicio_Date <- as.Date(data$Fecha_Inicio_Date, origin = "1970-01-01")
+  data$Fecha_Envio_Date <- as.Date(data$Fecha_Envio_Date, origin = "1970-01-01")
+  data$Fecha_Respuesta_Date <- as.Date(data$Fecha_Respuesta_Date, origin = "1970-01-01")
+  data$Fecha_Aceptado_Date <- as.Date(data$Fecha_Aceptado_Date, origin = "1970-01-01")
+  data$Fecha_Publicado_Date <- as.Date(data$Fecha_Publicado_Date, origin = "1970-01-01")
 
   # Crear columna de alertas
   data$Alertas <- ""
@@ -222,33 +295,33 @@ validate_dates <- function(data) {
     alertas <- c()
 
     # Validar orden de fechas
-    if (!is.na(data$Fecha_Inicio[i]) && !is.na(data$Fecha_Envio[i])) {
-      if (data$Fecha_Envio[i] < data$Fecha_Inicio[i]) {
+    if (!is.na(data$Fecha_Inicio_Date[i]) && !is.na(data$Fecha_Envio_Date[i])) {
+      if (data$Fecha_Envio_Date[i] < data$Fecha_Inicio_Date[i]) {
         alertas <- c(alertas, "⚠️ Envío anterior al inicio")
       }
     }
 
-    if (!is.na(data$Fecha_Envio[i]) && !is.na(data$Fecha_Respuesta[i])) {
-      if (data$Fecha_Respuesta[i] < data$Fecha_Envio[i]) {
+    if (!is.na(data$Fecha_Envio_Date[i]) && !is.na(data$Fecha_Respuesta_Date[i])) {
+      if (data$Fecha_Respuesta_Date[i] < data$Fecha_Envio_Date[i]) {
         alertas <- c(alertas, "⚠️ Respuesta anterior al envío")
       }
     }
 
-    if (!is.na(data$Fecha_Respuesta[i]) && !is.na(data$Fecha_Aceptado[i])) {
-      if (data$Fecha_Aceptado[i] < data$Fecha_Respuesta[i]) {
+    if (!is.na(data$Fecha_Respuesta_Date[i]) && !is.na(data$Fecha_Aceptado_Date[i])) {
+      if (data$Fecha_Aceptado_Date[i] < data$Fecha_Respuesta_Date[i]) {
         alertas <- c(alertas, "⚠️ Aceptación anterior a respuesta")
       }
     }
 
-    if (!is.na(data$Fecha_Aceptado[i]) && !is.na(data$Fecha_Publicado[i])) {
-      if (data$Fecha_Publicado[i] < data$Fecha_Aceptado[i]) {
+    if (!is.na(data$Fecha_Aceptado_Date[i]) && !is.na(data$Fecha_Publicado_Date[i])) {
+      if (data$Fecha_Publicado_Date[i] < data$Fecha_Aceptado_Date[i]) {
         alertas <- c(alertas, "⚠️ Publicación anterior a aceptación")
       }
     }
 
     # Verificar fechas futuras
     today <- Sys.Date()
-    if (!is.na(data$Fecha_Envio[i]) && data$Fecha_Envio[i] > today) {
+    if (!is.na(data$Fecha_Envio_Date[i]) && data$Fecha_Envio_Date[i] > today) {
       alertas <- c(alertas, "📅 Fecha de envío en el futuro")
     }
 
@@ -258,54 +331,59 @@ validate_dates <- function(data) {
   return(data)
 }
 
-# FUNCIÓN MEJORADA PARA CALCULAR DÍAS
+# FUNCIÓN MEJORADA PARA CALCULAR DÍAS CON TIPOS CONSISTENTES
 calculate_days_improved <- function(data) {
   data <- validate_dates(data)
 
-  # Calcular días solo si las fechas son válidas y están en orden correcto
+  # Calcular días usando las fechas convertidas
   data$Dias_Envio_Inicio <- ifelse(
-    !is.na(data$Fecha_Inicio) & !is.na(data$Fecha_Envio) &
-      data$Fecha_Envio >= data$Fecha_Inicio,
-    as.numeric(difftime(data$Fecha_Envio, data$Fecha_Inicio, units = "days")),
+    !is.na(data$Fecha_Inicio_Date) & !is.na(data$Fecha_Envio_Date) &
+      data$Fecha_Envio_Date >= data$Fecha_Inicio_Date,
+    as.numeric(difftime(data$Fecha_Envio_Date, data$Fecha_Inicio_Date, units = "days")),
     NA
   )
 
   data$Dias_Respuesta_Envio <- ifelse(
-    !is.na(data$Fecha_Envio) & !is.na(data$Fecha_Respuesta) &
-      data$Fecha_Respuesta >= data$Fecha_Envio,
-    as.numeric(difftime(data$Fecha_Respuesta, data$Fecha_Envio, units = "days")),
+    !is.na(data$Fecha_Envio_Date) & !is.na(data$Fecha_Respuesta_Date) &
+      data$Fecha_Respuesta_Date >= data$Fecha_Envio_Date,
+    as.numeric(difftime(data$Fecha_Respuesta_Date, data$Fecha_Envio_Date, units = "days")),
     NA
   )
 
   data$Dias_Aceptado_Respuesta <- ifelse(
-    !is.na(data$Fecha_Respuesta) & !is.na(data$Fecha_Aceptado) &
-      data$Fecha_Aceptado >= data$Fecha_Respuesta,
-    as.numeric(difftime(data$Fecha_Aceptado, data$Fecha_Respuesta, units = "days")),
+    !is.na(data$Fecha_Respuesta_Date) & !is.na(data$Fecha_Aceptado_Date) &
+      data$Fecha_Aceptado_Date >= data$Fecha_Respuesta_Date,
+    as.numeric(difftime(data$Fecha_Aceptado_Date, data$Fecha_Respuesta_Date, units = "days")),
     NA
   )
 
   data$Dias_Aceptado_Envio <- ifelse(
     data$Estado %in% c("Aceptado","Publicado") &
-      !is.na(data$Fecha_Aceptado) & !is.na(data$Fecha_Envio) &
-      data$Fecha_Aceptado >= data$Fecha_Envio,
-    as.numeric(difftime(data$Fecha_Aceptado, data$Fecha_Envio, units = "days")),
+      !is.na(data$Fecha_Aceptado_Date) & !is.na(data$Fecha_Envio_Date) &
+      data$Fecha_Aceptado_Date >= data$Fecha_Envio_Date,
+    as.numeric(difftime(data$Fecha_Aceptado_Date, data$Fecha_Envio_Date, units = "days")),
     NA
   )
 
   data$Dias_Aceptado_Publicado <- ifelse(
     data$Estado == "Publicado" &
-      !is.na(data$Fecha_Publicado) & !is.na(data$Fecha_Aceptado) &
-      data$Fecha_Publicado >= data$Fecha_Aceptado,
-    as.numeric(difftime(data$Fecha_Publicado, data$Fecha_Aceptado, units = "days")),
+      !is.na(data$Fecha_Publicado_Date) & !is.na(data$Fecha_Aceptado_Date) &
+      data$Fecha_Publicado_Date >= data$Fecha_Aceptado_Date,
+    as.numeric(difftime(data$Fecha_Publicado_Date, data$Fecha_Aceptado_Date, units = "days")),
     NA
   )
+
+  # Remover columnas temporales de fechas
+  cols_to_remove <- c("Fecha_Inicio_Date", "Fecha_Envio_Date", "Fecha_Respuesta_Date",
+                      "Fecha_Aceptado_Date", "Fecha_Publicado_Date")
+  data <- data[, !colnames(data) %in% cols_to_remove]
 
   return(data)
 }
 
 # UI MEJORADO
 ui <- dashboardPage(
-  dashboardHeader(title = "SciControl"),
+  dashboardHeader(title = "SciControl - Análisis Mejorado"),
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
@@ -337,7 +415,7 @@ ui <- dashboardPage(
       "))
     ),
     tabItems(
-      # Tab: Agregar Proyecto (mantenido igual)
+      # Tab: Agregar Proyecto
       tabItem(tabName = "agregar",
               fluidRow(
                 box(title = "Agregar o Actualizar Proyecto", width = 12, status = "primary",
@@ -379,7 +457,7 @@ ui <- dashboardPage(
               )
       ),
 
-      # Tab: Ver Proyectos (mantenido igual pero con alertas)
+      # Tab: Ver Proyectos
       tabItem(tabName = "ver",
               fluidRow(
                 box(title = "Proyectos Actuales", width = 12, DTOutput("project_table"))
@@ -434,7 +512,7 @@ ui <- dashboardPage(
               )
       ),
 
-      # Resto de tabs (mantenidos iguales)
+      # Tab: Subida de Evidencias
       tabItem(tabName = "evidencias",
               fluidRow(
                 box(title = "Subir Evidencias para Proyectos", width = 12, status = "primary",
@@ -457,6 +535,7 @@ ui <- dashboardPage(
               )
       ),
 
+      # Tab: Ver Archivos Subidos
       tabItem(tabName = "ver_evidencias",
               fluidRow(
                 box(title = "Ver Archivos en Dropbox", width = 12, status = "primary",
@@ -469,6 +548,7 @@ ui <- dashboardPage(
               )
       ),
 
+      # Tab: Descargar Datos
       tabItem(tabName = "descargar",
               fluidRow(
                 box(title = "Descargar Datos", width = 12, status = "primary",
@@ -479,6 +559,7 @@ ui <- dashboardPage(
               )
       ),
 
+      # Tab: Importar Datos
       tabItem(tabName = "importar",
               fluidRow(
                 box(title = "Importar Datos desde Excel", width = 12, status = "primary",
@@ -645,6 +726,19 @@ server <- function(input, output, session) {
 
   # NUEVOS GRÁFICOS PARA EL DASHBOARD
 
+  # Función auxiliar para gráficos vacíos
+  plotly_empty <- function() {
+    plot_ly() %>%
+      add_annotations(
+        text = "No hay datos suficientes para mostrar",
+        xref = "paper", yref = "paper",
+        x = 0.5, y = 0.5, showarrow = FALSE,
+        font = list(size = 16, color = "gray")
+      ) %>%
+      layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+             yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+  }
+
   # Gráfico de distribución de estados
   output$status_chart <- renderPlotly({
     data <- project_data()
@@ -791,22 +885,7 @@ server <- function(input, output, session) {
     ggplotly(p, tooltip = c("x", "y"))
   })
 
-  # Función auxiliar para gráficos vacíos
-  plotly_empty <- function() {
-    plot_ly() %>%
-      add_annotations(
-        text = "No hay datos suficientes para mostrar",
-        xref = "paper", yref = "paper",
-        x = 0.5, y = 0.5, showarrow = FALSE,
-        font = list(size = 16, color = "gray")
-      ) %>%
-      layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
-             yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
-  }
-
-  # RESTO DE FUNCIONALIDADES (mantenidas del código original)
-
-  # Tabla de proyectos con alertas
+  # TABLA DE PROYECTOS CON ALERTAS
   output$project_table <- renderDT({
     data <- days_data_improved()
     if (nrow(data) == 0) return(datatable(data.frame(), options = list(pageLength = 10)))
@@ -834,7 +913,7 @@ server <- function(input, output, session) {
                                                rep("#fff3cd", sum(grepl("⚠️", data$Estado_Display)))))
   })
 
-  # Subida de evidencias a Dropbox
+  # SUBIDA DE EVIDENCIAS A DROPBOX
   observeEvent(input$upload_btn, {
     req(input$file_upload, input$project_select, input$file_type)
 
@@ -882,7 +961,7 @@ server <- function(input, output, session) {
     })
   })
 
-  # Tabla de archivos en Dropbox
+  # TABLA DE ARCHIVOS EN DROPBOX
   output$files_table <- renderDT({
     files_refresh()
 
@@ -991,7 +1070,7 @@ server <- function(input, output, session) {
     })
   })
 
-  # Selección de proyecto para editar
+  # SELECCIÓN DE PROYECTO PARA EDITAR
   observeEvent(input$project_table_rows_selected, {
     sel <- input$project_table_rows_selected
     if (!is.null(sel)) {
@@ -1011,40 +1090,197 @@ server <- function(input, output, session) {
     }
   })
 
-  # Guardar o actualizar proyecto
+  # EVENTO CORREGIDO PARA GUARDAR CAMBIOS
   observeEvent(input$save_changes, {
+    # Validar entrada mínima
+    if (is.null(input$project_name) || input$project_name == "") {
+      showModal(modalDialog(
+        title = "Error",
+        "Por favor ingrese un nombre para el proyecto.",
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+      return()
+    }
+
     data <- project_data()
     idx <- which(data$Nombre == input$project_name)
-    fecha_resp <- if (input$status %in% c("Revisión","Aceptado","Publicado")) as.character(input$response_date) else NA
-    fecha_acc <- if (input$status %in% c("Aceptado","Publicado")) as.character(input$acceptance_date) else NA
-    fecha_pub <- if (input$status=="Publicado") as.character(input$publication_date) else NA
-    prog <- progress_map[[input$status]]
-    new_row <- data.frame(
-      Nombre=input$project_name,
-      Fecha_Inicio=as.character(input$start_date),
-      Fecha_Envio=if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado")) as.character(input$send_date) else NA,
-      Fecha_Respuesta=fecha_resp,
-      Revista=input$journal,
-      Cuartil=input$quartile,
-      Estado=input$status,
-      Grupo=input$group,
-      Progreso=prog,
-      Fecha_Aceptado=fecha_acc,
-      Fecha_Publicado=fecha_pub,
-      Linea_Investigacion=input$research_line,
-      Observaciones=input$observations,
-      stringsAsFactors=FALSE
-    )
-    if (length(idx)>0) {
-      data[idx,] <- new_row
+
+    # Preparar fechas como character de manera consistente
+    fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
+    fecha_envio <- if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado") && !is.null(input$send_date)) {
+      as.character(input$send_date)
     } else {
-      data <- rbind(data, new_row)
+      NA_character_
     }
-    project_data(data)
-    save_project_data(data)
-    showModal(modalDialog(title="Éxito",
-                          "El proyecto ha sido guardado correctamente.",
-                          easyClose=TRUE, footer=modalButton("Cerrar")))
+    fecha_resp <- if (input$status %in% c("Revisión","Aceptado","Publicado") && !is.null(input$response_date)) {
+      as.character(input$response_date)
+    } else {
+      NA_character_
+    }
+    fecha_acc <- if (input$status %in% c("Aceptado","Publicado") && !is.null(input$acceptance_date)) {
+      as.character(input$acceptance_date)
+    } else {
+      NA_character_
+    }
+    fecha_pub <- if (input$status == "Publicado" && !is.null(input$publication_date)) {
+      as.character(input$publication_date)
+    } else {
+      NA_character_
+    }
+
+    prog <- progress_map[[input$status]]
+
+    # Crear nueva fila con tipos consistentes
+    new_row <- data.frame(
+      Nombre = as.character(input$project_name),
+      Fecha_Inicio = fecha_inicio,
+      Fecha_Envio = fecha_envio,
+      Fecha_Respuesta = fecha_resp,
+      Revista = as.character(input$journal %||% ""),
+      Cuartil = as.character(input$quartile %||% "Q1"),
+      Estado = as.character(input$status),
+      Grupo = as.character(input$group),
+      Progreso = as.numeric(prog),
+      Fecha_Aceptado = fecha_acc,
+      Fecha_Publicado = fecha_pub,
+      Linea_Investigacion = as.character(input$research_line %||% ""),
+      Observaciones = as.character(input$observations %||% ""),
+      stringsAsFactors = FALSE
+    )
+
+    # Validación de fechas antes de guardar
+    alertas_validacion <- c()
+
+    if (!is.na(fecha_inicio) && !is.na(fecha_envio)) {
+      if (as.Date(fecha_envio) < as.Date(fecha_inicio)) {
+        alertas_validacion <- c(alertas_validacion, "La fecha de envío es anterior a la fecha de inicio")
+      }
+    }
+
+    if (!is.na(fecha_envio) && !is.na(fecha_resp)) {
+      if (as.Date(fecha_resp) < as.Date(fecha_envio)) {
+        alertas_validacion <- c(alertas_validacion, "La fecha de respuesta es anterior a la fecha de envío")
+      }
+    }
+
+    # Mostrar advertencias pero permitir guardar
+    if (length(alertas_validacion) > 0) {
+      showModal(modalDialog(
+        title = "⚠️ Advertencia de Validación",
+        HTML(paste("Se detectaron las siguientes inconsistencias:",
+                   "<ul><li>", paste(alertas_validacion, collapse = "</li><li>"), "</li></ul>",
+                   "<br><strong>¿Desea continuar guardando el proyecto?</strong>")),
+        footer = tagList(
+          modalButton("Cancelar"),
+          actionButton("confirm_save", "Guardar de todas formas", class = "btn-warning")
+        )
+      ))
+      return()
+    }
+
+    # Guardar datos
+    tryCatch({
+      if (length(idx) > 0) {
+        # Actualizar proyecto existente
+        data[idx, ] <- new_row
+      } else {
+        # Agregar nuevo proyecto
+        data <- rbind(data, new_row)
+      }
+
+      project_data(data)
+      save_project_data(data)
+
+      showModal(modalDialog(
+        title = "✅ Éxito",
+        "El proyecto ha sido guardado correctamente.",
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+    }, error = function(e) {
+      showModal(modalDialog(
+        title = "❌ Error",
+        paste("Error al guardar el proyecto:", e$message),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+    })
+  })
+
+  # Evento para confirmar guardado con advertencias
+  observeEvent(input$confirm_save, {
+    removeModal()
+
+    data <- project_data()
+    idx <- which(data$Nombre == input$project_name)
+
+    # Preparar datos (mismo código que arriba)
+    fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
+    fecha_envio <- if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado") && !is.null(input$send_date)) {
+      as.character(input$send_date)
+    } else {
+      NA_character_
+    }
+    fecha_resp <- if (input$status %in% c("Revisión","Aceptado","Publicado") && !is.null(input$response_date)) {
+      as.character(input$response_date)
+    } else {
+      NA_character_
+    }
+    fecha_acc <- if (input$status %in% c("Aceptado","Publicado") && !is.null(input$acceptance_date)) {
+      as.character(input$acceptance_date)
+    } else {
+      NA_character_
+    }
+    fecha_pub <- if (input$status == "Publicado" && !is.null(input$publication_date)) {
+      as.character(input$publication_date)
+    } else {
+      NA_character_
+    }
+
+    prog <- progress_map[[input$status]]
+
+    new_row <- data.frame(
+      Nombre = as.character(input$project_name),
+      Fecha_Inicio = fecha_inicio,
+      Fecha_Envio = fecha_envio,
+      Fecha_Respuesta = fecha_resp,
+      Revista = as.character(input$journal %||% ""),
+      Cuartil = as.character(input$quartile %||% "Q1"),
+      Estado = as.character(input$status),
+      Grupo = as.character(input$group),
+      Progreso = as.numeric(prog),
+      Fecha_Aceptado = fecha_acc,
+      Fecha_Publicado = fecha_pub,
+      Linea_Investigacion = as.character(input$research_line %||% ""),
+      Observaciones = as.character(input$observations %||% ""),
+      stringsAsFactors = FALSE
+    )
+
+    tryCatch({
+      if (length(idx) > 0) {
+        data[idx, ] <- new_row
+      } else {
+        data <- rbind(data, new_row)
+      }
+
+      project_data(data)
+      save_project_data(data)
+
+      showModal(modalDialog(
+        title = "✅ Éxito",
+        "El proyecto ha sido guardado correctamente (con advertencias).",
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+    }, error = function(e) {
+      showModal(modalDialog(
+        title = "❌ Error",
+        paste("Error al guardar el proyecto:", e$message),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+    })
   })
 
   # Limpiar campos
@@ -1104,7 +1340,7 @@ server <- function(input, output, session) {
     }
   )
 
-  # Importar datos
+  # EVENTO MEJORADO PARA IMPORTAR EXCEL
   observeEvent(input$import_excel_btn, {
     req(input$excel_upload)
 
@@ -1141,6 +1377,7 @@ server <- function(input, output, session) {
         return()
       }
 
+      # Agregar columnas faltantes
       missing_columns <- setdiff(required_columns, colnames(imported_data))
       if (length(missing_columns) > 0) {
         for (col in missing_columns) {
@@ -1148,21 +1385,56 @@ server <- function(input, output, session) {
         }
       }
 
-      imported_data <- imported_data[, required_columns]
+      # NORMALIZAR TIPOS DE DATOS DESPUÉS DE IMPORTAR
+      date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
+                        "Fecha_Aceptado", "Fecha_Publicado")
+
+      for (col in date_columns) {
+        if (col %in% colnames(imported_data)) {
+          if (inherits(imported_data[[col]], c("POSIXct", "POSIXt", "Date"))) {
+            imported_data[[col]] <- as.character(as.Date(imported_data[[col]]))
+          } else if (is.character(imported_data[[col]])) {
+            imported_data[[col]] <- sapply(imported_data[[col]], function(x) {
+              if (is.na(x) || x == "" || x == "NA") return(NA_character_)
+              tryCatch({
+                fecha <- as.Date(x)
+                if (!is.na(fecha)) return(as.character(fecha))
+                return(NA_character_)
+              }, error = function(e) NA_character_)
+            })
+          }
+        }
+      }
+
+      # Asegurar otros tipos
+      if ("Progreso" %in% colnames(imported_data)) {
+        imported_data$Progreso <- as.numeric(imported_data$Progreso)
+      }
+
+      # Convertir a data.frame estándar
+      imported_data <- as.data.frame(imported_data[, required_columns], stringsAsFactors = FALSE)
 
       project_data(imported_data)
       save_project_data(imported_data)
 
-      output$import_status <- renderText(paste("✅ Datos importados exitosamente.", nrow(imported_data), "proyectos fueron cargados desde la hoja:", project_sheet))
+      output$import_status <- renderText(paste("✅ Datos importados exitosamente.",
+                                               nrow(imported_data),
+                                               "proyectos fueron cargados desde la hoja:", project_sheet))
 
       showModal(modalDialog(
-        title = "Éxito",
+        title = "✅ Éxito",
         paste("Los datos se han importado correctamente.", nrow(imported_data), "proyectos fueron cargados."),
         easyClose = TRUE,
         footer = modalButton("Cerrar")
       ))
     }, error = function(e) {
       output$import_status <- renderText(paste("❌ Error al importar datos:", e$message))
+      showModal(modalDialog(
+        title = "❌ Error de Importación",
+        paste("Error al procesar el archivo Excel:", e$message),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
     })
   })
 }
