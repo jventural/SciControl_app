@@ -10,14 +10,14 @@ library(tools)
 library(httr)
 library(jsonlite)
 library(base64enc)
+library(ggplot2)
+library(plotly)
+library(dplyr)
 
-# CONFIGURACIÓN DE DROPBOX
-# 1. Ve a https://www.dropbox.com/developers/apps
-# 2. Crea una nueva app con "Scoped access" y "Full Dropbox"
-# 3. Obtén tu Access Token desde la sección "OAuth 2" -> "Generated access token"
+# CONFIGURACIÓN DE DROPBOX (mantener tu token)
 DROPBOX_ACCESS_TOKEN <- "sl.u.AFyq3zXGMyjN83cQGctTJlUFmaElmzxhsMIxVq8ueSkh_vLq0jeClobsSI68WZbXT7gPzqei-SvwSL_7NQWxTpTsFG7eKru4l1S06fitEJOwGlEJ41K2nluJiG_RItjftSrcKTxR-S3ARU-NQcNOrUFjx5mH5Vj4sK8wFrsdU6vsISxghoOksQ9-WLd0I9HqezZjtqaZ7cBj7XymN3LXtqrAMCyEEt0tGOWyO8klv2MOaA4VmDmZEwFl4IkDPVBxArTHavXyTAzXFowEcDGrx5eoqjj8ZxRnZ-O5MZUsHxuJolXY-GiBNYFMLRgaYZ8D7egdVF91866cA9EBWdleqzqf1bCjHZtTvmti_oTDn4SStQkyM-XL4j-lZM8xbz6GNLYkmy2AdAS2325sK6swHp72m98BL5B8TZKMgFRTd_SeSPV-svGFzRviAWxMuiYOUctTynmPdwbnrs_SCTIuTd9mb89HGu-_q5Z9EUR0PlO7Bb9RYdQ0HyVhN52KYoiVls-AgOhyr81uyJqJ73y1v62yasWw7urmr-1xHQltotMH76WYCr_CEWydyhPLz8ONPJi6HitETCvvvhP-0ogQbzRgvy8wLHa6ryiVtZfYepkMZ6meYBgbL8LeUa_0X5MI4eGJz5F2Dqt6dI_FHHCQoGc_gGxN45tLjBpsRc5DbvQJobo0S-UD0tbYm4PN2namTgoaF9c9rhj1jtNu-qKbB7dp1FQn56yEQ8jt4LX7XJrXy3hk5Mo0VzYQlGSVVF62hDZ5b0tdEX6g9Xj3SpP8teH9veVMFd4IigiUdNnuaeoHcWDlvbiI-eqJyN4oz4-sDvPmXxEQQZpfAdc9Rff3c_MdZ4LNOMUJZ6ePWUUYpqzHRsNYFna2gOcnsX0Q-fduvgN80ZrQOWdbQpzsCQKXmqP6zyDOmzIjVKg_sAqNyTmsYkfizng6oc9UG90YX7pRVdkPGwT0BYRumVDGI3gCziFtCk0I6TrQL5hSGAXA_TF6j1EO6OEve1xkxXxOnunqPgkkizlRY9Lp3p2BlW7_d36mZD2p8VaUE4Zm841AvC7pdwFgRhVdVW9BkY4_8l0d6MGByalwJSNsyg8LdLuph_zG-mUDYVxuiyg0JK3aF43EnrS1d6wnbAt0ZGIpaDNjoaALHp2k5R0gel0yo34EGWMIS3IY__4Oyo06iLF4a_GvCqBn2sIghFuUFpvR9s8GVAEInpMZ_3q8BZ4BBdloH3k0Yk0ZdjAVQLe9gwjkgNqWgtkaCnnNaz2HgMrqi1Rto2dTAEzCADw1jf9mTlw7JyuwDGfiV_sEQ3Bt83kKpx0iRg"
 
-# Función para verificar configuración de Dropbox
+# Funciones de Dropbox (mantener las mismas)
 check_dropbox_config <- function() {
   if (DROPBOX_ACCESS_TOKEN == "tu_dropbox_access_token_aqui" ||
       DROPBOX_ACCESS_TOKEN == "") {
@@ -26,27 +26,21 @@ check_dropbox_config <- function() {
   return(TRUE)
 }
 
-# Función para subir archivo a Dropbox
 upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
   tryCatch({
-    # Crear path único
     timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
     file_base <- tools::file_path_sans_ext(file_name)
     file_ext <- tools::file_ext(file_name)
-
     unique_name <- paste0(file_base, "_", timestamp, ".", file_ext)
 
-    # Construir path completo en Dropbox
     if (!is.null(folder_path)) {
       dropbox_path <- paste0("/", folder_path, "/", unique_name)
     } else {
       dropbox_path <- paste0("/", unique_name)
     }
 
-    # Leer el archivo
     file_content <- readBin(file_path, "raw", file.info(file_path)$size)
 
-    # Subir archivo usando Dropbox API v2
     response <- POST(
       url = "https://content.dropboxapi.com/2/files/upload",
       add_headers(
@@ -63,8 +57,6 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
 
     if (response$status_code == 200) {
       result <- content(response, "parsed")
-
-      # Crear enlace compartido
       share_response <- POST(
         url = "https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings",
         add_headers(
@@ -73,16 +65,13 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
         ),
         body = jsonlite::toJSON(list(
           path = result$path_display,
-          settings = list(
-            requested_visibility = "public"
-          )
+          settings = list(requested_visibility = "public")
         ), auto_unbox = TRUE)
       )
 
       share_url <- ""
       if (share_response$status_code == 200) {
         share_result <- content(share_response, "parsed")
-        # Convertir el enlace de vista a enlace directo
         share_url <- gsub("\\?dl=0", "?dl=1", share_result$url)
       }
 
@@ -102,17 +91,12 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
       ))
     }
   }, error = function(e) {
-    return(list(
-      success = FALSE,
-      error = as.character(e)
-    ))
+    return(list(success = FALSE, error = as.character(e)))
   })
 }
 
-# Función para listar archivos de Dropbox por carpeta
 list_dropbox_files <- function(folder_path = NULL) {
   tryCatch({
-    # Path base para buscar
     search_path <- if (is.null(folder_path)) "" else paste0("/", folder_path)
 
     response <- POST(
@@ -132,11 +116,8 @@ list_dropbox_files <- function(folder_path = NULL) {
 
     if (response$status_code == 200) {
       result <- content(response, "parsed")
-
       if (length(result$entries) > 0) {
-        # Filtrar solo archivos (no carpetas)
         files <- result$entries[sapply(result$entries, function(x) x$.tag == "file")]
-
         if (length(files) > 0) {
           files_df <- data.frame(
             name = sapply(files, function(x) basename(x$name)),
@@ -156,7 +137,6 @@ list_dropbox_files <- function(folder_path = NULL) {
   })
 }
 
-# Función para eliminar archivo de Dropbox
 delete_dropbox_file <- function(file_path) {
   tryCatch({
     response <- POST(
@@ -165,11 +145,8 @@ delete_dropbox_file <- function(file_path) {
         "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
         "Content-Type" = "application/json"
       ),
-      body = jsonlite::toJSON(list(
-        path = file_path
-      ), auto_unbox = TRUE)
+      body = jsonlite::toJSON(list(path = file_path), auto_unbox = TRUE)
     )
-
     return(response$status_code == 200)
   }, error = function(e) {
     warning("Error al eliminar archivo: ", e$message)
@@ -177,55 +154,20 @@ delete_dropbox_file <- function(file_path) {
   })
 }
 
-# Función para obtener enlace de descarga/vista
-get_dropbox_file_link <- function(file_path) {
-  tryCatch({
-    response <- POST(
-      url = "https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings",
-      add_headers(
-        "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
-        "Content-Type" = "application/json"
-      ),
-      body = jsonlite::toJSON(list(
-        path = file_path,
-        settings = list(
-          requested_visibility = "public"
-        )
-      ), auto_unbox = TRUE)
-    )
-
-    if (response$status_code == 200) {
-      result <- content(response, "parsed")
-      return(result$url)
-    }
-    return("")
-  }, error = function(e) {
-    return("")
-  })
-}
-
-# Aumentar el límite de tamaño de archivo a 100 MB
+# Configuración
 options(shiny.maxRequestSize = 100*1024^2)
-
-# Definir carpeta local para el archivo de datos
 data_dir <- "data"
-if (!dir.exists(data_dir)) {
-  dir.create(data_dir)
-}
+if (!dir.exists(data_dir)) dir.create(data_dir)
 data_file <- file.path(data_dir, "project_data.xlsx")
 
-# Función para sanitizar el nombre del proyecto
 sanitize_project_name <- function(project_name) {
   name <- gsub("[:/\\\\?<>\\|*\"'\\s]", "_", project_name)
   name <- gsub("_{2,}", "_", name)
   name <- trimws(name, whitespace = "_")
-  if (nchar(name) > 30) {
-    name <- substr(name, 1, 30)
-  }
+  if (nchar(name) > 30) name <- substr(name, 1, 30)
   return(name)
 }
 
-# Función para cargar los datos del proyecto
 load_project_data <- function() {
   if (file.exists(data_file)) {
     project_data <- read_excel(data_file)
@@ -235,9 +177,7 @@ load_project_data <- function() {
                           "Observaciones")
     missing_columns <- setdiff(required_columns, colnames(project_data))
     if (length(missing_columns) > 0) {
-      for (col in missing_columns) {
-        project_data[[col]] <- NA
-      }
+      for (col in missing_columns) project_data[[col]] <- NA
     }
   } else {
     project_data <- data.frame(
@@ -261,23 +201,118 @@ load_project_data <- function() {
   return(project_data)
 }
 
-# Función para guardar los datos
 save_project_data <- function(project_data) {
   writexl::write_xlsx(project_data, data_file)
 }
 
-# Verificar configuración al inicio
 STORAGE_CONFIGURED <- check_dropbox_config()
 
-# Interfaz de usuario
+# FUNCIÓN MEJORADA PARA VALIDAR FECHAS
+validate_dates <- function(data) {
+  data$Fecha_Inicio <- as.Date(data$Fecha_Inicio)
+  data$Fecha_Envio <- as.Date(data$Fecha_Envio)
+  data$Fecha_Respuesta <- as.Date(data$Fecha_Respuesta)
+  data$Fecha_Aceptado <- as.Date(data$Fecha_Aceptado)
+  data$Fecha_Publicado <- as.Date(data$Fecha_Publicado)
+
+  # Crear columna de alertas
+  data$Alertas <- ""
+
+  for (i in 1:nrow(data)) {
+    alertas <- c()
+
+    # Validar orden de fechas
+    if (!is.na(data$Fecha_Inicio[i]) && !is.na(data$Fecha_Envio[i])) {
+      if (data$Fecha_Envio[i] < data$Fecha_Inicio[i]) {
+        alertas <- c(alertas, "⚠️ Envío anterior al inicio")
+      }
+    }
+
+    if (!is.na(data$Fecha_Envio[i]) && !is.na(data$Fecha_Respuesta[i])) {
+      if (data$Fecha_Respuesta[i] < data$Fecha_Envio[i]) {
+        alertas <- c(alertas, "⚠️ Respuesta anterior al envío")
+      }
+    }
+
+    if (!is.na(data$Fecha_Respuesta[i]) && !is.na(data$Fecha_Aceptado[i])) {
+      if (data$Fecha_Aceptado[i] < data$Fecha_Respuesta[i]) {
+        alertas <- c(alertas, "⚠️ Aceptación anterior a respuesta")
+      }
+    }
+
+    if (!is.na(data$Fecha_Aceptado[i]) && !is.na(data$Fecha_Publicado[i])) {
+      if (data$Fecha_Publicado[i] < data$Fecha_Aceptado[i]) {
+        alertas <- c(alertas, "⚠️ Publicación anterior a aceptación")
+      }
+    }
+
+    # Verificar fechas futuras
+    today <- Sys.Date()
+    if (!is.na(data$Fecha_Envio[i]) && data$Fecha_Envio[i] > today) {
+      alertas <- c(alertas, "📅 Fecha de envío en el futuro")
+    }
+
+    data$Alertas[i] <- paste(alertas, collapse = "; ")
+  }
+
+  return(data)
+}
+
+# FUNCIÓN MEJORADA PARA CALCULAR DÍAS
+calculate_days_improved <- function(data) {
+  data <- validate_dates(data)
+
+  # Calcular días solo si las fechas son válidas y están en orden correcto
+  data$Dias_Envio_Inicio <- ifelse(
+    !is.na(data$Fecha_Inicio) & !is.na(data$Fecha_Envio) &
+      data$Fecha_Envio >= data$Fecha_Inicio,
+    as.numeric(difftime(data$Fecha_Envio, data$Fecha_Inicio, units = "days")),
+    NA
+  )
+
+  data$Dias_Respuesta_Envio <- ifelse(
+    !is.na(data$Fecha_Envio) & !is.na(data$Fecha_Respuesta) &
+      data$Fecha_Respuesta >= data$Fecha_Envio,
+    as.numeric(difftime(data$Fecha_Respuesta, data$Fecha_Envio, units = "days")),
+    NA
+  )
+
+  data$Dias_Aceptado_Respuesta <- ifelse(
+    !is.na(data$Fecha_Respuesta) & !is.na(data$Fecha_Aceptado) &
+      data$Fecha_Aceptado >= data$Fecha_Respuesta,
+    as.numeric(difftime(data$Fecha_Aceptado, data$Fecha_Respuesta, units = "days")),
+    NA
+  )
+
+  data$Dias_Aceptado_Envio <- ifelse(
+    data$Estado %in% c("Aceptado","Publicado") &
+      !is.na(data$Fecha_Aceptado) & !is.na(data$Fecha_Envio) &
+      data$Fecha_Aceptado >= data$Fecha_Envio,
+    as.numeric(difftime(data$Fecha_Aceptado, data$Fecha_Envio, units = "days")),
+    NA
+  )
+
+  data$Dias_Aceptado_Publicado <- ifelse(
+    data$Estado == "Publicado" &
+      !is.na(data$Fecha_Publicado) & !is.na(data$Fecha_Aceptado) &
+      data$Fecha_Publicado >= data$Fecha_Aceptado,
+    as.numeric(difftime(data$Fecha_Publicado, data$Fecha_Aceptado, units = "days")),
+    NA
+  )
+
+  return(data)
+}
+
+# UI MEJORADO
 ui <- dashboardPage(
-  dashboardHeader(title = "SciControl - Dropbox Storage"),
+  dashboardHeader(title = "SciControl"),
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
       menuItem("Agregar Proyecto", tabName = "agregar", icon = icon("plus")),
       menuItem("Ver Proyectos", tabName = "ver", icon = icon("table")),
-      menuItem("Cálculo de Días", tabName = "dias", icon = icon("clock")),
+      menuItem("Análisis de Tiempos", tabName = "dias", icon = icon("clock")),
+      menuItem("Dashboard Visual", tabName = "dashboard", icon = icon("chart-line")),
       menuItem("Subida de Evidencias", tabName = "evidencias", icon = icon("upload")),
       menuItem("Ver Archivos Subidos", tabName = "ver_evidencias", icon = icon("folder-open")),
       menuItem("Descargar Datos", tabName = "descargar", icon = icon("download")),
@@ -293,16 +328,20 @@ ui <- dashboardPage(
         .btn-primary { background-color: #336699; border-color: #336699; color: white; }
         .status-connected { color: #28a745; font-weight: bold; }
         .status-disconnected { color: #dc3545; font-weight: bold; }
-        .config-box { padding: 15px; margin: 10px 0; border-radius: 5px; background: #f8f9fa; border-left: 4px solid #007bff; }
-        .success-box { background: #d4edda; border-left-color: #28a745; }
-        .error-box { background: #f8d7da; border-left-color: #dc3545; }
+        .alert-box { padding: 10px; margin: 5px; border-radius: 4px; }
+        .alert-warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; }
+        .alert-success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .metric-box { text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px; margin: 5px; }
+        .metric-number { font-size: 2em; font-weight: bold; color: #336699; }
+        .metric-label { font-size: 0.9em; color: #666; }
       "))
     ),
     tabItems(
-      # Tab: Agregar Proyecto (sin cambios)
+      # Tab: Agregar Proyecto (mantenido igual)
       tabItem(tabName = "agregar",
               fluidRow(
                 box(title = "Agregar o Actualizar Proyecto", width = 12, status = "primary",
+                    div(id = "date_validation_alerts"),
                     textInput("project_name", "Nombre del Proyecto"),
                     dateInput("start_date", "Fecha de Inicio", format = "yyyy-mm-dd", value = NULL),
                     conditionalPanel(
@@ -340,7 +379,7 @@ ui <- dashboardPage(
               )
       ),
 
-      # Tab: Ver Proyectos (sin cambios)
+      # Tab: Ver Proyectos (mantenido igual pero con alertas)
       tabItem(tabName = "ver",
               fluidRow(
                 box(title = "Proyectos Actuales", width = 12, DTOutput("project_table"))
@@ -353,20 +392,53 @@ ui <- dashboardPage(
               )
       ),
 
-      # Tab: Cálculo de Días (sin cambios)
+      # Tab: Análisis de Tiempos MEJORADO
       tabItem(tabName = "dias",
               fluidRow(
-                box(title = "Cálculo de Días Entre Fechas", width = 12, DTOutput("days_table"))
+                box(title = "📊 Resumen de Métricas", width = 12, status = "info",
+                    htmlOutput("metrics_summary")
+                )
+              ),
+              fluidRow(
+                box(title = "⚠️ Alertas de Validación", width = 12, status = "warning",
+                    DTOutput("validation_alerts_table")
+                )
+              ),
+              fluidRow(
+                box(title = "📈 Análisis Detallado de Tiempos", width = 12, DTOutput("days_table_improved"))
               )
       ),
 
-      # Tab: Subida de Evidencias
+      # Tab: NUEVO Dashboard Visual
+      tabItem(tabName = "dashboard",
+              fluidRow(
+                box(title = "📊 Distribución de Estados", width = 6,
+                    plotlyOutput("status_chart", height = "300px")
+                ),
+                box(title = "⏱️ Tiempo Promedio por Cuartil", width = 6,
+                    plotlyOutput("quartile_time_chart", height = "300px")
+                )
+              ),
+              fluidRow(
+                box(title = "📅 Línea de Tiempo de Proyectos", width = 12,
+                    plotlyOutput("timeline_chart", height = "400px")
+                )
+              ),
+              fluidRow(
+                box(title = "🎯 Análisis de Rendimiento", width = 6,
+                    plotlyOutput("performance_chart", height = "300px")
+                ),
+                box(title = "📈 Tendencias Mensuales", width = 6,
+                    plotlyOutput("monthly_trends", height = "300px")
+                )
+              )
+      ),
+
+      # Resto de tabs (mantenidos iguales)
       tabItem(tabName = "evidencias",
               fluidRow(
                 box(title = "Subir Evidencias para Proyectos", width = 12, status = "primary",
-                    div(id = "upload-status-indicator",
-                        textOutput("upload_system_status")
-                    ),
+                    div(id = "upload-status-indicator", textOutput("upload_system_status")),
                     br(),
                     selectInput("project_select", "Seleccione un Proyecto", choices = NULL),
                     selectInput("file_type", "Tipo de Archivo",
@@ -385,7 +457,6 @@ ui <- dashboardPage(
               )
       ),
 
-      # Tab: Ver Archivos Subidos
       tabItem(tabName = "ver_evidencias",
               fluidRow(
                 box(title = "Ver Archivos en Dropbox", width = 12, status = "primary",
@@ -398,7 +469,6 @@ ui <- dashboardPage(
               )
       ),
 
-      # Tab: Descargar Datos (sin cambios)
       tabItem(tabName = "descargar",
               fluidRow(
                 box(title = "Descargar Datos", width = 12, status = "primary",
@@ -409,7 +479,6 @@ ui <- dashboardPage(
               )
       ),
 
-      # Tab: Importar Datos (sin cambios)
       tabItem(tabName = "importar",
               fluidRow(
                 box(title = "Importar Datos desde Excel", width = 12, status = "primary",
@@ -424,6 +493,7 @@ ui <- dashboardPage(
   )
 )
 
+# SERVER MEJORADO
 server <- function(input, output, session) {
 
   # Variables reactivas
@@ -431,17 +501,44 @@ server <- function(input, output, session) {
   files_refresh <- reactiveVal(0)
 
   progress_map <- list(
-    "Introducción" = 10,
-    "Método" = 30,
-    "Resultados" = 50,
-    "Discusión" = 70,
-    "Enviado" = 80,
-    "Revisión" = 90,
-    "Aceptado" = 95,
-    "Publicado" = 100
+    "Introducción" = 10, "Método" = 30, "Resultados" = 50,
+    "Discusión" = 70, "Enviado" = 80, "Revisión" = 90,
+    "Aceptado" = 95, "Publicado" = 100
   )
 
-  # Estado para subida de archivos
+  # Datos mejorados con validación
+  days_data_improved <- reactive({
+    data <- project_data()
+    if (nrow(data) == 0) return(data)
+    calculate_days_improved(data)
+  })
+
+  # Validación de fechas en tiempo real
+  observeEvent(c(input$start_date, input$send_date, input$response_date,
+                 input$acceptance_date, input$publication_date), {
+                   alerts <- c()
+
+                   if (!is.null(input$start_date) && !is.null(input$send_date)) {
+                     if (input$send_date < input$start_date) {
+                       alerts <- c(alerts, "⚠️ La fecha de envío debe ser posterior a la fecha de inicio")
+                     }
+                   }
+
+                   if (!is.null(input$send_date) && !is.null(input$response_date)) {
+                     if (input$response_date < input$send_date) {
+                       alerts <- c(alerts, "⚠️ La fecha de respuesta debe ser posterior a la fecha de envío")
+                     }
+                   }
+
+                   output$date_validation_alerts <- renderUI({
+                     if (length(alerts) > 0) {
+                       div(class = "alert-box alert-warning",
+                           HTML(paste(alerts, collapse = "<br>")))
+                     }
+                   })
+                 })
+
+  # Sistema de subida de archivos
   output$upload_system_status <- renderText({
     if (STORAGE_CONFIGURED) {
       "✅ Sistema listo para subir archivos a Dropbox"
@@ -454,12 +551,287 @@ server <- function(input, output, session) {
   observe({
     data <- project_data()
     data$Nombre <- as.character(data$Nombre)
-    display_names <- ifelse(is.na(data$Nombre) | data$Nombre == "",
-                            "(sin nombre)",
-                            data$Nombre)
+    display_names <- ifelse(is.na(data$Nombre) | data$Nombre == "", "(sin nombre)", data$Nombre)
     updateSelectInput(session, "delete_project", choices = display_names)
     updateSelectInput(session, "project_select", choices = data$Nombre)
     updateSelectInput(session, "project_view", choices = c("", data$Nombre))
+  })
+
+  # NUEVA TABLA DE MÉTRICAS RESUMIDAS
+  output$metrics_summary <- renderUI({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(div("No hay datos disponibles"))
+
+    # Calcular métricas
+    total_projects <- nrow(data)
+    published <- sum(data$Estado == "Publicado", na.rm = TRUE)
+    accepted <- sum(data$Estado %in% c("Aceptado", "Publicado"), na.rm = TRUE)
+    avg_review_time <- round(mean(data$Dias_Respuesta_Envio, na.rm = TRUE), 1)
+    avg_acceptance_time <- round(mean(data$Dias_Aceptado_Envio, na.rm = TRUE), 1)
+
+    # Calcular alertas
+    data_with_alerts <- data[data$Alertas != "", ]
+    total_alerts <- nrow(data_with_alerts)
+
+    div(
+      fluidRow(
+        column(2, div(class = "metric-box",
+                      div(class = "metric-number", total_projects),
+                      div(class = "metric-label", "Total Proyectos"))),
+        column(2, div(class = "metric-box",
+                      div(class = "metric-number", published),
+                      div(class = "metric-label", "Publicados"))),
+        column(2, div(class = "metric-box",
+                      div(class = "metric-number", accepted),
+                      div(class = "metric-label", "Aceptados"))),
+        column(2, div(class = "metric-box",
+                      div(class = "metric-number", ifelse(is.na(avg_review_time), "-", paste0(avg_review_time, " días"))),
+                      div(class = "metric-label", "Tiempo Promedio Revisión"))),
+        column(2, div(class = "metric-box",
+                      div(class = "metric-number", ifelse(is.na(avg_acceptance_time), "-", paste0(avg_acceptance_time, " días"))),
+                      div(class = "metric-label", "Tiempo Promedio Aceptación"))),
+        column(2, div(class = "metric-box",
+                      div(class = "metric-number", total_alerts),
+                      div(class = "metric-label", "Alertas")))
+      )
+    )
+  })
+
+  # NUEVA TABLA DE ALERTAS DE VALIDACIÓN
+  output$validation_alerts_table <- renderDT({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(datatable(data.frame(), options = list(pageLength = 5)))
+
+    alerts_data <- data[data$Alertas != "", c("Nombre", "Estado", "Alertas")]
+
+    if (nrow(alerts_data) == 0) {
+      no_alerts <- data.frame(
+        Mensaje = "✅ No se encontraron problemas de validación en las fechas",
+        stringsAsFactors = FALSE
+      )
+      return(datatable(no_alerts, options = list(pageLength = 5, dom = 't'), rownames = FALSE))
+    }
+
+    datatable(alerts_data,
+              options = list(pageLength = 5, dom = 'tp'),
+              rownames = FALSE,
+              escape = FALSE) %>%
+      formatStyle("Alertas", backgroundColor = "#fff3cd", color = "#856404")
+  })
+
+  # TABLA MEJORADA DE ANÁLISIS DE DÍAS
+  output$days_table_improved <- renderDT({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(datatable(data.frame(), options = list(pageLength = 10)))
+
+    display_data <- data[, c("Nombre", "Revista", "Cuartil", "Estado",
+                             "Dias_Envio_Inicio", "Dias_Respuesta_Envio",
+                             "Dias_Aceptado_Respuesta", "Dias_Aceptado_Envio",
+                             "Dias_Aceptado_Publicado")]
+
+    # Renombrar columnas para mejor presentación
+    colnames(display_data) <- c("Proyecto", "Revista", "Cuartil", "Estado",
+                                "Días Inicio→Envío", "Días Envío→Respuesta",
+                                "Días Respuesta→Aceptado", "Días Envío→Aceptado",
+                                "Días Aceptado→Publicado")
+
+    datatable(display_data,
+              options = list(pageLength = 10, scrollX = TRUE),
+              rownames = FALSE) %>%
+      formatStyle(columns = 5:9,
+                  backgroundColor = styleInterval(c(0, 30, 90),
+                                                  c("#ffebee", "#fff3e0", "#e8f5e8", "#c8e6c9")))
+  })
+
+  # NUEVOS GRÁFICOS PARA EL DASHBOARD
+
+  # Gráfico de distribución de estados
+  output$status_chart <- renderPlotly({
+    data <- project_data()
+    if (nrow(data) == 0) return(plotly_empty())
+
+    status_counts <- data %>%
+      count(Estado) %>%
+      mutate(Porcentaje = round(n/sum(n)*100, 1))
+
+    p <- ggplot(status_counts, aes(x = reorder(Estado, n), y = n, fill = Estado)) +
+      geom_col() +
+      coord_flip() +
+      labs(title = "Distribución de Estados de Proyectos",
+           x = "Estado", y = "Cantidad") +
+      theme_minimal() +
+      theme(legend.position = "none") +
+      scale_fill_viridis_d()
+
+    ggplotly(p, tooltip = c("x", "y"))
+  })
+
+  # Gráfico de tiempo por cuartil
+  output$quartile_time_chart <- renderPlotly({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(plotly_empty())
+
+    quartile_data <- data %>%
+      filter(!is.na(Cuartil), !is.na(Dias_Respuesta_Envio)) %>%
+      group_by(Cuartil) %>%
+      summarise(
+        Promedio = round(mean(Dias_Respuesta_Envio, na.rm = TRUE), 1),
+        Mediana = round(median(Dias_Respuesta_Envio, na.rm = TRUE), 1),
+        .groups = 'drop'
+      )
+
+    if (nrow(quartile_data) == 0) return(plotly_empty())
+
+    p <- ggplot(quartile_data, aes(x = Cuartil, y = Promedio, fill = Cuartil)) +
+      geom_col() +
+      labs(title = "Tiempo Promedio de Respuesta por Cuartil",
+           x = "Cuartil", y = "Días promedio") +
+      theme_minimal() +
+      theme(legend.position = "none") +
+      scale_fill_manual(values = c("Q1" = "#1f77b4", "Q2" = "#ff7f0e",
+                                   "Q3" = "#2ca02c", "Q4" = "#d62728"))
+
+    ggplotly(p, tooltip = c("x", "y"))
+  })
+
+  # Línea de tiempo de proyectos
+  output$timeline_chart <- renderPlotly({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(plotly_empty())
+
+    timeline_data <- data %>%
+      filter(!is.na(Fecha_Inicio)) %>%
+      mutate(
+        Fecha_Inicio = as.Date(Fecha_Inicio),
+        Fecha_Fin = case_when(
+          !is.na(Fecha_Publicado) ~ as.Date(Fecha_Publicado),
+          !is.na(Fecha_Aceptado) ~ as.Date(Fecha_Aceptado),
+          !is.na(Fecha_Respuesta) ~ as.Date(Fecha_Respuesta),
+          !is.na(Fecha_Envio) ~ as.Date(Fecha_Envio),
+          TRUE ~ Fecha_Inicio + 30
+        ),
+        Duracion = as.numeric(Fecha_Fin - Fecha_Inicio)
+      ) %>%
+      arrange(Fecha_Inicio)
+
+    if (nrow(timeline_data) == 0) return(plotly_empty())
+
+    p <- ggplot(timeline_data, aes(x = Fecha_Inicio, xend = Fecha_Fin,
+                                   y = reorder(Nombre, Fecha_Inicio), yend = reorder(Nombre, Fecha_Inicio),
+                                   color = Estado)) +
+      geom_segment(size = 3) +
+      labs(title = "Línea de Tiempo de Proyectos",
+           x = "Fecha", y = "Proyecto") +
+      theme_minimal() +
+      theme(axis.text.y = element_text(size = 8)) +
+      scale_color_viridis_d()
+
+    ggplotly(p, tooltip = c("colour", "x", "xend"))
+  })
+
+  # Análisis de rendimiento
+  output$performance_chart <- renderPlotly({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(plotly_empty())
+
+    performance_data <- data %>%
+      filter(!is.na(Dias_Envio_Inicio), !is.na(Dias_Respuesta_Envio)) %>%
+      mutate(
+        Eficiencia = case_when(
+          Dias_Envio_Inicio <= 365 & Dias_Respuesta_Envio <= 90 ~ "Alta",
+          Dias_Envio_Inicio <= 730 & Dias_Respuesta_Envio <= 180 ~ "Media",
+          TRUE ~ "Baja"
+        )
+      )
+
+    if (nrow(performance_data) == 0) return(plotly_empty())
+
+    p <- ggplot(performance_data, aes(x = Dias_Envio_Inicio, y = Dias_Respuesta_Envio,
+                                      color = Eficiencia, size = Estado == "Publicado")) +
+      geom_point(alpha = 0.7) +
+      labs(title = "Análisis de Eficiencia de Proyectos",
+           x = "Días desde Inicio hasta Envío",
+           y = "Días desde Envío hasta Respuesta") +
+      theme_minimal() +
+      scale_color_manual(values = c("Alta" = "#2ca02c", "Media" = "#ff7f0e", "Baja" = "#d62728")) +
+      scale_size_manual(values = c("TRUE" = 4, "FALSE" = 2), guide = "none")
+
+    ggplotly(p, tooltip = c("x", "y", "colour"))
+  })
+
+  # Tendencias mensuales
+  output$monthly_trends <- renderPlotly({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(plotly_empty())
+
+    monthly_data <- data %>%
+      filter(!is.na(Fecha_Envio)) %>%
+      mutate(
+        Fecha_Envio = as.Date(Fecha_Envio),
+        Mes_Envio = format(Fecha_Envio, "%Y-%m")
+      ) %>%
+      group_by(Mes_Envio) %>%
+      summarise(
+        Enviados = n(),
+        Promedio_Respuesta = round(mean(Dias_Respuesta_Envio, na.rm = TRUE), 1),
+        .groups = 'drop'
+      ) %>%
+      arrange(Mes_Envio)
+
+    if (nrow(monthly_data) == 0) return(plotly_empty())
+
+    p <- ggplot(monthly_data, aes(x = Mes_Envio)) +
+      geom_col(aes(y = Enviados), fill = "#1f77b4", alpha = 0.7) +
+      geom_line(aes(y = Promedio_Respuesta, group = 1), color = "#ff7f0e", size = 2) +
+      labs(title = "Tendencias Mensuales de Envíos y Tiempos de Respuesta",
+           x = "Mes", y = "Cantidad / Días") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+    ggplotly(p, tooltip = c("x", "y"))
+  })
+
+  # Función auxiliar para gráficos vacíos
+  plotly_empty <- function() {
+    plot_ly() %>%
+      add_annotations(
+        text = "No hay datos suficientes para mostrar",
+        xref = "paper", yref = "paper",
+        x = 0.5, y = 0.5, showarrow = FALSE,
+        font = list(size = 16, color = "gray")
+      ) %>%
+      layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+             yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+  }
+
+  # RESTO DE FUNCIONALIDADES (mantenidas del código original)
+
+  # Tabla de proyectos con alertas
+  output$project_table <- renderDT({
+    data <- days_data_improved()
+    if (nrow(data) == 0) return(datatable(data.frame(), options = list(pageLength = 10)))
+
+    data$Progreso <- sapply(data$Estado, function(estado) {
+      p <- progress_map[[estado]]
+      sprintf(
+        '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px;">
+           <div style="width:%d%%; background-color:#e74c3c; color:white; text-align:center; padding:5px 0; border-radius:5px;">%d%%</div>
+         </div>', p, p)
+    })
+
+    # Agregar indicador de alertas
+    data$Estado_Display <- ifelse(data$Alertas != "",
+                                  paste0(data$Estado, " ⚠️"),
+                                  data$Estado)
+
+    display_cols <- c("Nombre", "Estado_Display", "Revista", "Cuartil", "Grupo", "Progreso", "Linea_Investigacion")
+    display_data <- data[, display_cols]
+    colnames(display_data)[2] <- "Estado"
+
+    datatable(display_data, escape = FALSE, options = list(pageLength = 10), rownames = FALSE) %>%
+      formatStyle("Estado",
+                  backgroundColor = styleEqual(grep("⚠️", data$Estado_Display, value = TRUE),
+                                               rep("#fff3cd", sum(grepl("⚠️", data$Estado_Display)))))
   })
 
   # Subida de evidencias a Dropbox
@@ -478,11 +850,9 @@ server <- function(input, output, session) {
     output$upload_status <- renderText("📤 Subiendo archivo a Dropbox...")
 
     tryCatch({
-      # Crear path de carpeta: scicontrol/proyecto/tipo_archivo
       sanitized_project <- sanitize_project_name(project_name)
       folder_path <- paste0("scicontrol/", sanitized_project, "/", file_type)
 
-      # Subir archivo
       result <- upload_to_dropbox(file_info$datapath, file_info$name, folder_path)
 
       if (result$success) {
@@ -525,7 +895,6 @@ server <- function(input, output, session) {
     sanitized_name <- sanitize_project_name(project_name)
 
     tryCatch({
-      # Buscar archivos del proyecto
       folder_prefix <- paste0("scicontrol/", sanitized_name)
       files <- list_dropbox_files(folder_prefix)
 
@@ -534,7 +903,6 @@ server <- function(input, output, session) {
         return(datatable(empty, options = list(pageLength = 10), rownames = FALSE, selection = "single"))
       }
 
-      # Procesar datos para mostrar
       files$Carpeta <- sapply(files$path, function(x) {
         parts <- strsplit(x, "/")[[1]]
         if (length(parts) >= 4) parts[4] else "general"
@@ -623,46 +991,6 @@ server <- function(input, output, session) {
     })
   })
 
-  # [Resto del código del servidor sin cambios - tabla de proyectos, días, etc.]
-
-  # Tabla de proyectos
-  output$project_table <- renderDT({
-    data <- project_data()
-    data$Progreso <- sapply(data$Estado, function(estado) {
-      p <- progress_map[[estado]]
-      sprintf(
-        '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px;">
-           <div style="width:%d%%; background-color:#e74c3c; color:white; text-align:center; padding:5px 0; border-radius:5px;">%d%%</div>
-         </div>', p, p)
-    })
-    datatable(data, escape = FALSE, options = list(pageLength = 10), rownames = FALSE)
-  })
-
-  # Cálculo de días
-  days_data <- reactive({
-    data <- project_data()
-    data$Dias_Envio_Inicio <- ifelse(!is.na(data$Fecha_Inicio) & !is.na(data$Fecha_Envio),
-                                     as.numeric(difftime(as.Date(data$Fecha_Envio), as.Date(data$Fecha_Inicio), units = "days")), NA)
-    data$Dias_Respuesta_Envio <- ifelse(!is.na(data$Fecha_Envio) & !is.na(data$Fecha_Respuesta),
-                                        as.numeric(difftime(as.Date(data$Fecha_Respuesta), as.Date(data$Fecha_Envio), units = "days")), NA)
-    data$Dias_Aceptado_Respuesta <- ifelse(!is.na(data$Fecha_Respuesta) & !is.na(data$Fecha_Aceptado),
-                                           as.numeric(difftime(as.Date(data$Fecha_Aceptado), as.Date(data$Fecha_Respuesta), units = "days")), NA)
-    data$Dias_Aceptado_Envio <- ifelse(data$Estado %in% c("Aceptado","Publicado") & !is.na(data$Fecha_Aceptado) & !is.na(data$Fecha_Envio),
-                                       as.numeric(difftime(as.Date(data$Fecha_Aceptado), as.Date(data$Fecha_Envio), units = "days")), NA)
-    data$Dias_Aceptado_Publicado <- ifelse(data$Estado=="Publicado" & !is.na(data$Fecha_Publicado)&!is.na(data$Fecha_Aceptado),
-                                           as.numeric(difftime(as.Date(data$Fecha_Publicado), as.Date(data$Fecha_Aceptado), units = "days")), NA)
-    data
-  })
-
-  output$days_table <- renderDT({
-    d <- days_data()
-    datatable(d[, c("Nombre","Revista","Cuartil",
-                    "Dias_Envio_Inicio","Dias_Respuesta_Envio",
-                    "Dias_Aceptado_Respuesta","Dias_Aceptado_Envio",
-                    "Dias_Aceptado_Publicado")],
-              options = list(pageLength = 10), rownames = FALSE)
-  })
-
   # Selección de proyecto para editar
   observeEvent(input$project_table_rows_selected, {
     sel <- input$project_table_rows_selected
@@ -719,7 +1047,7 @@ server <- function(input, output, session) {
                           easyClose=TRUE, footer=modalButton("Cerrar")))
   })
 
-  # Limpiar campos de entrada
+  # Limpiar campos
   observeEvent(input$clear_fields, {
     updateTextInput(session, "project_name", value = "")
     updateDateInput(session, "start_date", value = NULL)
@@ -755,18 +1083,28 @@ server <- function(input, output, session) {
   output$download_data <- downloadHandler(
     filename = function() paste0("scicontrol_datos_", Sys.Date(), ".xlsx"),
     content = function(file) {
+      data_with_analysis <- days_data_improved()
       data_list <- list(
-        "Proyectos" = project_data(),
-        "Calculo_Dias" = days_data()[, c("Nombre","Revista","Cuartil",
-                                         "Dias_Envio_Inicio","Dias_Respuesta_Envio",
-                                         "Dias_Aceptado_Respuesta","Dias_Aceptado_Envio",
-                                         "Dias_Aceptado_Publicado")]
+        "Proyectos" = data_with_analysis,
+        "Analisis_Tiempos" = data_with_analysis[, c("Nombre","Revista","Cuartil", "Estado",
+                                                    "Dias_Envio_Inicio","Dias_Respuesta_Envio",
+                                                    "Dias_Aceptado_Respuesta","Dias_Aceptado_Envio",
+                                                    "Dias_Aceptado_Publicado", "Alertas")],
+        "Resumen_Metricas" = data.frame(
+          Metrica = c("Total Proyectos", "Publicados", "Aceptados",
+                      "Tiempo Promedio Revisión (días)", "Tiempo Promedio Aceptación (días)"),
+          Valor = c(nrow(data_with_analysis),
+                    sum(data_with_analysis$Estado == "Publicado", na.rm = TRUE),
+                    sum(data_with_analysis$Estado %in% c("Aceptado", "Publicado"), na.rm = TRUE),
+                    round(mean(data_with_analysis$Dias_Respuesta_Envio, na.rm = TRUE), 1),
+                    round(mean(data_with_analysis$Dias_Aceptado_Envio, na.rm = TRUE), 1))
+        )
       )
       writexl::write_xlsx(data_list, file)
     }
   )
 
-  # Importar datos desde Excel
+  # Importar datos
   observeEvent(input$import_excel_btn, {
     req(input$excel_upload)
 
@@ -827,7 +1165,6 @@ server <- function(input, output, session) {
       output$import_status <- renderText(paste("❌ Error al importar datos:", e$message))
     })
   })
-
 }
 
 # Ejecutar la aplicación
