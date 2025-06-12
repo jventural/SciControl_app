@@ -8,6 +8,9 @@ library(shinyjs)
 library(utils)
 library(tools)  # Para file_ext()
 
+# Aumentar el límite de tamaño de archivo a 100 MB
+options(shiny.maxRequestSize = 100*1024^2)
+
 # Definir carpeta fija para guardar la información
 data_dir <- "data"
 if (!dir.exists(data_dir)) {
@@ -23,30 +26,46 @@ if (!dir.exists(upload_dir)) {
 
 # Función para sanitizar el nombre del proyecto
 sanitize_project_name <- function(project_name) {
-  sanitized_name <- gsub("[:/\\?<>\\|]", "_", project_name)
-  if (nchar(sanitized_name) > 50) {
-    sanitized_name <- substr(sanitized_name, 1, 50)
+  # 1) quita los caracteres prohibidos en Windows
+  name <- gsub("[:/\\\\?<>\\|]", "", project_name)
+  # 2) colapsa espacios múltiples en uno
+  name <- gsub("\\s+", " ", name)
+  # 3) quita espacios al inicio y al final
+  name <- trimws(name)
+  # 4) reemplaza espacios internos por guiones bajos
+  name <- gsub(" ", "_", name)
+  # 5) opcional: trunca a 50 caracteres
+  if (nchar(name) > 50) {
+    name <- substr(name, 1, 50)
   }
-  return(sanitized_name)
+  return(name)
 }
 
 # Función para crear las carpetas del proyecto
 create_project_folders <- function(project_name) {
-  sanitized_name <- sanitize_project_name(project_name)
-  project_path <- file.path(upload_dir, sanitized_name)
+  sanitized <- sanitize_project_name(project_name)
+  project_path <- file.path(upload_dir, sanitized)
+  # crea toda la jerarquía de golpe si hace falta
   if (!dir.exists(project_path)) {
-    dir.create(project_path)
+    dir.create(project_path, recursive = TRUE, showWarnings = FALSE)
   }
-  folders <- c("Actas", "Capturas de Pantalla", "Correos Electrónicos",
-               "Fotos de Coordinaciones", "Resumen de la Reunión con AI")
-  for (folder in folders) {
-    folder_path <- file.path(project_path, folder)
-    if (!dir.exists(folder_path)) {
-      dir.create(folder_path)
+  # subcarpetas SIN espacios ni tildes
+  folders <- c(
+    "Actas",
+    "Capturas_de_Pantalla",
+    "Correos_Electronicos",
+    "Fotos_de_Coordinaciones",
+    "Resumen_de_la_Reunion_con_AI"
+  )
+  for (f in folders) {
+    fp <- file.path(project_path, f)
+    if (!dir.exists(fp)) {
+      dir.create(fp, recursive = TRUE, showWarnings = FALSE)
     }
   }
   return(project_path)
 }
+
 
 # Función para cargar los datos del proyecto desde el archivo Excel
 load_project_data <- function() {
@@ -114,14 +133,22 @@ ui <- dashboardPage(
       "))
     ),
     tabItems(
+      # Tab: Agregar Proyecto
       tabItem(tabName = "agregar",
               fluidRow(
                 box(title = "Agregar o Actualizar Proyecto", width = 12, status = "primary",
                     textInput("project_name", "Nombre del Proyecto"),
                     dateInput("start_date", "Fecha de Inicio", format = "yyyy-mm-dd", value = NULL),
-                    dateInput("send_date", "Fecha de Envío", format = "yyyy-mm-dd", value = NULL),
-                    textInput("journal", "Revista"),
-                    selectInput("quartile", "Cuartil de la Revista", choices = c("Q1", "Q2", "Q3", "Q4")),
+                    conditionalPanel(
+                      condition = "input.status == 'Enviado'",
+                      dateInput("send_date", "Fecha de Envío", format = "yyyy-mm-dd", value = NULL)
+                    ),
+                    conditionalPanel(
+                      condition = "input.status == 'Enviado' || input.status == 'Revisión' ||
+                           input.status == 'Aceptado' || input.status == 'Publicado'",
+                      textInput("journal", "Revista"),
+                      selectInput("quartile", "Cuartil de la Revista", choices = c("Q1", "Q2", "Q3", "Q4"))
+                    ),
                     selectInput("status", "Estado", choices = c("Introducción", "Método", "Resultados",
                                                                 "Discusión", "Enviado", "Revisión",
                                                                 "Aceptado", "Publicado")),
@@ -145,6 +172,8 @@ ui <- dashboardPage(
                 )
               )
       ),
+
+      # Tab: Ver Proyectos
       tabItem(tabName = "ver",
               fluidRow(
                 box(title = "Proyectos Actuales", width = 12, DTOutput("project_table"))
@@ -156,11 +185,15 @@ ui <- dashboardPage(
                 )
               )
       ),
+
+      # Tab: Cálculo de Días
       tabItem(tabName = "dias",
               fluidRow(
                 box(title = "Cálculo de Días Entre Fechas", width = 12, DTOutput("days_table"))
               )
       ),
+
+      # Tab: Subida de Evidencias
       tabItem(tabName = "evidencias",
               fluidRow(
                 box(title = "Subir Evidencias para Proyectos", width = 12, status = "primary",
@@ -174,15 +207,19 @@ ui <- dashboardPage(
                 )
               )
       ),
+
+      # Tab: Ver Archivos Subidos (modificado)
       tabItem(tabName = "ver_evidencias",
               fluidRow(
                 box(title = "Ver Archivos Subidos", width = 12, status = "primary",
                     selectInput("project_view", "Seleccione un Proyecto para ver archivos", choices = c("")),
-                    actionButton("clear_files_table", "Limpiar Archivos", class = "btn-warning"),
+                    actionButton("delete_file", "Eliminar Archivo", class = "btn-danger"),
                     DTOutput("files_table")
                 )
               )
       ),
+
+      # Tab: Descargar Datos
       tabItem(tabName = "descargar",
               fluidRow(
                 box(title = "Descargar Datos y Archivos", width = 12, status = "primary",
@@ -190,6 +227,8 @@ ui <- dashboardPage(
                 )
               )
       ),
+
+      # Tab: Importar Datos
       tabItem(tabName = "importar",
               fluidRow(
                 box(title = "Importar Datos desde ZIP", width = 12, status = "primary",
@@ -220,11 +259,16 @@ server <- function(input, output, session) {
     "Publicado" = 100
   )
 
-  # Actualizar los selectInputs según los proyectos disponibles
+  # Actualizar selectInputs dinámicamente
   observe({
-    updateSelectInput(session, "project_select", choices = project_data()$Nombre)
-    updateSelectInput(session, "project_view", choices = c("", project_data()$Nombre))
-    updateSelectInput(session, "delete_project", choices = project_data()$Nombre)
+    data <- project_data()
+    data$Nombre <- as.character(data$Nombre)
+    display_names <- ifelse(is.na(data$Nombre) | data$Nombre == "",
+                            "(sin nombre)",
+                            data$Nombre)
+    updateSelectInput(session, "delete_project", choices = display_names)
+    updateSelectInput(session, "project_select", choices = data$Nombre)
+    updateSelectInput(session, "project_view", choices = c("", data$Nombre))
   })
 
   # Subida de evidencias
@@ -233,170 +277,123 @@ server <- function(input, output, session) {
     project_name <- input$project_select
     file_type <- input$file_type
     file_info <- input$file_upload
-
     project_folder <- create_project_folders(project_name)
-
     folder_map <- list(
-      "Acta" = "Actas",
-      "Captura de Pantalla" = "Capturas de Pantalla",
-      "Correo Electrónico" = "Correos Electrónicos",
-      "Foto de Coordinaciones" = "Fotos de Coordinaciones",
-      "Resumen de la Reunión con AI" = "Resumen de la Reunión con AI"
+      "Acta"                   = "Actas",
+      "Captura de Pantalla"    = "Capturas_de_Pantalla",
+      "Correo Electrónico"     = "Correos_Electronicos",
+      "Foto de Coordinaciones" = "Fotos_de_Coordinaciones",
+      "Resumen de la Reunión con AI" = "Resumen_de_la_Reunion_con_AI"
     )
 
-    folder_name <- folder_map[[file_type]]
-    subfolder_path <- file.path(project_folder, folder_name)
+    subfolder_path <- file.path(
+      project_folder,
+      folder_map[[file_type]]
+    )
     if (!dir.exists(subfolder_path)) {
       dir.create(subfolder_path, recursive = TRUE)
     }
-
     file_path <- file.path(subfolder_path, file_info$name)
+
     if (file.copy(file_info$datapath, file_path, overwrite = TRUE)) {
-      output$upload_status <- renderText({
-        paste("Archivo subido correctamente a:", file_path)
-      })
+      output$upload_status <- renderText(paste("Archivo subido correctamente a:", file_path))
     } else {
       output$upload_status <- renderText("Error al subir el archivo.")
     }
   })
 
-  # Renderizar la tabla de proyectos en "Ver Proyectos"
+  # Tabla de proyectos
   output$project_table <- renderDT({
     data <- project_data()
     data$Progreso <- sapply(data$Estado, function(estado) {
-      progress_percentage <- progress_map[[estado]]
-      paste0('<div style="width:100%; background-color:#f3f3f3; border-radius:5px;">
-                <div style="width:', progress_percentage, '%; background-color:#e74c3c; color:white; text-align:center; padding:5px 0; border-radius:5px;">
-                  ', progress_percentage, '%
-                </div>
-              </div>')
+      p <- progress_map[[estado]]
+      sprintf(
+        '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px;">
+           <div style="width:%d%%; background-color:#e74c3c; color:white; text-align:center; padding:5px 0; border-radius:5px;">%d%%</div>
+         </div>', p, p)
     })
     datatable(data, escape = FALSE, options = list(pageLength = 10), rownames = FALSE)
   })
 
-  # Cálculo de días entre fechas
+  # Cálculo de días
   days_data <- reactive({
     data <- project_data()
-
     data$Dias_Envio_Inicio <- ifelse(!is.na(data$Fecha_Inicio) & !is.na(data$Fecha_Envio),
-                                     as.numeric(difftime(as.Date(data$Fecha_Envio, "%Y-%m-%d"),
-                                                         as.Date(data$Fecha_Inicio, "%Y-%m-%d"), units = "days")),
-                                     NA)
-
-    data$Dias_Aceptado_Envio <- ifelse(data$Estado %in% c("Aceptado", "Publicado") &
-                                         !is.na(data$Fecha_Aceptado) & !is.na(data$Fecha_Envio),
-                                       as.numeric(difftime(as.Date(data$Fecha_Aceptado, "%Y-%m-%d"),
-                                                           as.Date(data$Fecha_Envio, "%Y-%m-%d"), units = "days")),
-                                       NA)
-
-    data$Dias_Aceptado_Publicado <- ifelse(data$Estado == "Publicado" &
-                                             !is.na(data$Fecha_Publicado) & !is.na(data$Fecha_Aceptado),
-                                           as.numeric(difftime(as.Date(data$Fecha_Publicado, "%Y-%m-%d"),
-                                                               as.Date(data$Fecha_Aceptado, "%Y-%m-%d"), units = "days")),
-                                           NA)
-
+                                     as.numeric(difftime(as.Date(data$Fecha_Envio), as.Date(data$Fecha_Inicio), units = "days")), NA)
     data$Dias_Respuesta_Envio <- ifelse(!is.na(data$Fecha_Envio) & !is.na(data$Fecha_Respuesta),
-                                        as.numeric(difftime(as.Date(data$Fecha_Respuesta, "%Y-%m-%d"),
-                                                            as.Date(data$Fecha_Envio, "%Y-%m-%d"), units = "days")),
-                                        NA)
-
-    data$Dias_Aceptado_Respuesta <- ifelse(!is.na(data$Fecha_Aceptado) & !is.na(data$Fecha_Respuesta),
-                                           as.numeric(difftime(as.Date(data$Fecha_Aceptado, "%Y-%m-%d"),
-                                                               as.Date(data$Fecha_Respuesta, "%Y-%m-%d"), units = "days")),
-                                           NA)
+                                        as.numeric(difftime(as.Date(data$Fecha_Respuesta), as.Date(data$Fecha_Envio), units = "days")), NA)
+    data$Dias_Aceptado_Respuesta <- ifelse(!is.na(data$Fecha_Respuesta) & !is.na(data$Fecha_Aceptado),
+                                           as.numeric(difftime(as.Date(data$Fecha_Aceptado), as.Date(data$Fecha_Respuesta), units = "days")), NA)
+    data$Dias_Aceptado_Envio <- ifelse(data$Estado %in% c("Aceptado","Publicado") & !is.na(data$Fecha_Aceptado) & !is.na(data$Fecha_Envio),
+                                       as.numeric(difftime(as.Date(data$Fecha_Aceptado), as.Date(data$Fecha_Envio), units = "days")), NA)
+    data$Dias_Aceptado_Publicado <- ifelse(data$Estado=="Publicado" & !is.na(data$Fecha_Publicado)&!is.na(data$Fecha_Aceptado),
+                                           as.numeric(difftime(as.Date(data$Fecha_Publicado), as.Date(data$Fecha_Aceptado), units = "days")), NA)
     data
   })
 
   output$days_table <- renderDT({
-    data <- days_data()
-    datatable(data[, c("Nombre", "Revista", "Cuartil",
-                       "Dias_Envio_Inicio", "Dias_Respuesta_Envio", "Dias_Aceptado_Respuesta",
-                       "Dias_Aceptado_Envio", "Dias_Aceptado_Publicado")],
+    d <- days_data()
+    datatable(d[, c("Nombre","Revista","Cuartil",
+                    "Dias_Envio_Inicio","Dias_Respuesta_Envio",
+                    "Dias_Aceptado_Respuesta","Dias_Aceptado_Envio",
+                    "Dias_Aceptado_Publicado")],
               options = list(pageLength = 10), rownames = FALSE)
   })
 
-  # Al seleccionar una fila de la tabla, se actualizan los campos en Agregar/Actualizar Proyecto
+  # Selección de proyecto para editar
   observeEvent(input$project_table_rows_selected, {
-    selected_row <- input$project_table_rows_selected
-    if (!is.null(selected_row)) {
-      selected_project <- project_data()[selected_row, ]
-
-      updateSelectInput(session, "status", selected = selected_project$Estado)
-      updateTextInput(session, "project_name", value = selected_project$Nombre)
-      updateDateInput(session, "start_date", value = as.Date(selected_project$Fecha_Inicio))
-      updateDateInput(session, "send_date", value = as.Date(selected_project$Fecha_Envio))
-      updateDateInput(session, "response_date", value = as.Date(selected_project$Fecha_Respuesta))
-      updateTextInput(session, "journal", value = selected_project$Revista)
-      updateSelectInput(session, "quartile", selected = selected_project$Cuartil)
-      updateSelectInput(session, "group", selected = selected_project$Grupo)
-      updateDateInput(session, "acceptance_date", value = as.Date(selected_project$Fecha_Aceptado))
-      updateDateInput(session, "publication_date", value = as.Date(selected_project$Fecha_Publicado))
-      updateSelectInput(session, "research_line", selected = selected_project$Linea_Investigacion)
-      updateTextAreaInput(session, "observations", value = selected_project$Observaciones)
+    sel <- input$project_table_rows_selected
+    if (!is.null(sel)) {
+      proj <- project_data()[sel, ]
+      updateTextInput(session, "project_name", value = proj$Nombre)
+      updateDateInput(session, "start_date", value = as.Date(proj$Fecha_Inicio))
+      updateDateInput(session, "send_date", value = as.Date(proj$Fecha_Envio))
+      updateDateInput(session, "response_date", value = as.Date(proj$Fecha_Respuesta))
+      updateTextInput(session, "journal", value = proj$Revista)
+      updateSelectInput(session, "quartile", selected = proj$Cuartil)
+      updateSelectInput(session, "status", selected = proj$Estado)
+      updateSelectInput(session, "group", selected = proj$Grupo)
+      updateDateInput(session, "acceptance_date", value = as.Date(proj$Fecha_Aceptado))
+      updateDateInput(session, "publication_date", value = as.Date(proj$Fecha_Publicado))
+      updateSelectInput(session, "research_line", selected = proj$Linea_Investigacion)
+      updateTextAreaInput(session, "observations", value = proj$Observaciones)
     }
   })
 
-  # Guardar o actualizar un proyecto
+  # Guardar o actualizar proyecto
   observeEvent(input$save_changes, {
     data <- project_data()
-    project_index <- which(data$Nombre == input$project_name)
-
-    fecha_respuesta <- if (input$status %in% c("Revisión", "Aceptado", "Publicado")) {
-      as.character(input$response_date)
-    } else {
-      NA
-    }
-
-    fecha_aceptado <- if (input$status %in% c("Aceptado", "Publicado")) {
-      as.character(input$acceptance_date)
-    } else if (length(project_index) > 0) {
-      data$Fecha_Aceptado[project_index]
-    } else {
-      NA
-    }
-
-    fecha_publicado <- if (input$status == "Publicado") {
-      as.character(input$publication_date)
-    } else if (length(project_index) > 0) {
-      data$Fecha_Publicado[project_index]
-    } else {
-      NA
-    }
-
-    progreso <- progress_map[[input$status]]
-
-    new_entry <- data.frame(
-      Nombre = input$project_name,
-      Fecha_Inicio = as.character(input$start_date),
-      Fecha_Envio = as.character(input$send_date),
-      Fecha_Respuesta = fecha_respuesta,
-      Revista = input$journal,
-      Cuartil = input$quartile,
-      Estado = input$status,
-      Grupo = input$group,
-      Progreso = progreso,
-      Fecha_Aceptado = fecha_aceptado,
-      Fecha_Publicado = fecha_publicado,
-      Linea_Investigacion = input$research_line,
-      Observaciones = input$observations,
-      stringsAsFactors = FALSE
+    idx <- which(data$Nombre == input$project_name)
+    fecha_resp <- if (input$status %in% c("Revisión","Aceptado","Publicado")) as.character(input$response_date) else NA
+    fecha_acc <- if (input$status %in% c("Aceptado","Publicado")) as.character(input$acceptance_date) else NA
+    fecha_pub <- if (input$status=="Publicado") as.character(input$publication_date) else NA
+    prog <- progress_map[[input$status]]
+    new_row <- data.frame(
+      Nombre=input$project_name,
+      Fecha_Inicio=as.character(input$start_date),
+      Fecha_Envio=if (input$status=="Enviado") as.character(input$send_date) else NA,
+      Fecha_Respuesta=fecha_resp,
+      Revista=input$journal,
+      Cuartil=input$quartile,
+      Estado=input$status,
+      Grupo=input$group,
+      Progreso=prog,
+      Fecha_Aceptado=fecha_acc,
+      Fecha_Publicado=fecha_pub,
+      Linea_Investigacion=input$research_line,
+      Observaciones=input$observations,
+      stringsAsFactors=FALSE
     )
-
-    if (length(project_index) > 0) {
-      data[project_index, ] <- new_entry
+    if (length(idx)>0) {
+      data[idx,] <- new_row
     } else {
-      data <- rbind(data, new_entry)
+      data <- rbind(data, new_row)
     }
-
     project_data(data)
-    save_project_data(data)  # Se guarda la información en el archivo Excel
-
-    showModal(modalDialog(
-      title = "Éxito",
-      "El proyecto ha sido guardado correctamente y la información se ha escrito en el archivo Excel.",
-      easyClose = TRUE,
-      footer = modalButton("Cerrar")
-    ))
+    save_project_data(data)
+    showModal(modalDialog(title="Éxito",
+                          "El proyecto ha sido guardado correctamente.",
+                          easyClose=TRUE, footer=modalButton("Cerrar")))
   })
 
   # Limpiar campos de entrada
@@ -415,129 +412,138 @@ server <- function(input, output, session) {
     updateTextAreaInput(session, "observations", value = "")
   })
 
-  # Eliminar proyecto (solo mediante botón en "Ver Proyectos")
+  # Eliminar proyecto
   observeEvent(input$delete_button, {
     req(input$delete_project)
     data <- project_data()
-    data <- data[data$Nombre != input$delete_project, ]
+    if (input$delete_project == "(sin nombre)") {
+      data <- data[!(is.na(data$Nombre) | data$Nombre==""),]
+    } else {
+      data <- data[data$Nombre != input$delete_project,]
+    }
     project_data(data)
     save_project_data(data)
-    updateSelectInput(session, "delete_project", choices = data$Nombre)
-    showModal(modalDialog(
-      title = "Proyecto Eliminado",
-      paste("El proyecto", input$delete_project, "ha sido eliminado."),
-      easyClose = TRUE,
-      footer = modalButton("Cerrar")
-    ))
+    showModal(modalDialog(title="Proyecto Eliminado",
+                          paste("El proyecto", input$delete_project, "ha sido eliminado."),
+                          easyClose=TRUE, footer=modalButton("Cerrar")))
   })
 
-  # Renderizar la tabla de archivos subidos
+  # Tabla de archivos subidos
   output$files_table <- renderDT({
     files_refresh()
     if (input$project_view == "") {
-      return(datatable(data.frame(Archivo = character(), Carpeta = character(), Ruta_Completa = character()),
-                       options = list(pageLength = 10), rownames = FALSE, selection = "single"))
+      empty <- data.frame(Archivo=character(), Carpeta=character(), Ruta_Completa=character())
+      return(datatable(empty, options=list(pageLength=10), rownames=FALSE, selection="single"))
     }
-    project_name <- input$project_view
-    project_folder <- file.path(upload_dir, sanitize_project_name(project_name))
-    if (!dir.exists(project_folder)) {
-      return(datatable(data.frame(Archivo = character(), Carpeta = character(), Ruta_Completa = character()),
-                       options = list(pageLength = 10), rownames = FALSE, selection = "single"))
+    proj <- input$project_view
+    proj_folder <- file.path(upload_dir, sanitize_project_name(proj))
+    if (!dir.exists(proj_folder)) {
+      empty <- data.frame(Archivo=character(), Carpeta=character(), Ruta_Completa=character())
+      return(datatable(empty, options=list(pageLength=10), rownames=FALSE, selection="single"))
     }
-    file_list <- list.files(project_folder, recursive = TRUE, full.names = TRUE)
-    if (length(file_list) == 0) {
-      return(datatable(data.frame(Archivo = character(), Carpeta = character(), Ruta_Completa = character()),
-                       options = list(pageLength = 10), rownames = FALSE, selection = "single"))
+    files <- list.files(proj_folder, recursive=TRUE, full.names=TRUE)
+    if (length(files)==0) {
+      empty <- data.frame(Archivo=character(), Carpeta=character(), Ruta_Completa=character())
+      return(datatable(empty, options=list(pageLength=10), rownames=FALSE, selection="single"))
     }
-    files_df <- data.frame(
-      Archivo = basename(file_list),
-      Carpeta = dirname(file_list),
-      Ruta_Completa = file_list,
+    df <- data.frame(
+      Archivo = basename(files),
+      Carpeta = dirname(files),
+      Ruta_Completa = files,
       stringsAsFactors = FALSE
     )
-    datatable(files_df, options = list(pageLength = 10), rownames = FALSE, selection = "single")
+    datatable(df, options=list(pageLength=10), rownames=FALSE, selection="single", escape=FALSE)
   })
 
-  # Descargar datos y archivos en un ZIP
+  # Eliminar archivo seleccionado
+  # Eliminar archivo seleccionado
+  observeEvent(input$delete_file, {
+    sel <- input$files_table_rows_selected
+    if (is.null(sel) || length(sel) == 0) {
+      showModal(modalDialog(
+        title = "Atención",
+        "Por favor, seleccione primero un archivo de la tabla.",
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+      return()
+    }
+
+    # Reconstruir la ruta completa del archivo
+    proj_folder <- file.path(upload_dir, sanitize_project_name(input$project_view))
+    all_files <- list.files(proj_folder, recursive = TRUE, full.names = TRUE)
+    file_to_delete <- all_files[sel]
+
+    # Normalizamos la ruta (Windows / Unix) y comprobamos existencia
+    norm_path <- normalizePath(file_to_delete, winslash = "/", mustWork = FALSE)
+    message("Intentando borrar: ", norm_path)  # log para depuración
+
+    if (file.exists(norm_path) && file.remove(norm_path)) {
+      showModal(modalDialog(
+        title = "Éxito",
+        paste("Archivo eliminado:", basename(norm_path)),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+      # Forzamos refresco de la tabla
+      files_refresh(isolate(files_refresh()) + 1)
+    } else {
+      showModal(modalDialog(
+        title = "Error",
+        paste0("No se pudo eliminar el archivo.\nRuta probada:\n", norm_path),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+    }
+  })
+
+
+  # Descargar datos y archivos en ZIP
   output$download_data <- downloadHandler(
-    filename = function() {
-      paste0("datos_", Sys.Date(), ".zip")
-    },
+    filename = function() paste0("datos_", Sys.Date(), ".zip"),
     content = function(file) {
-      tmp_dir <- tempdir()
-
-      # Copiar el archivo Excel persistente al directorio temporal
-      file.copy(data_file, file.path(tmp_dir, "project_data.xlsx"), overwrite = TRUE)
-
-      # Generar el archivo de cálculo de días
-      dias <- days_data()
-      dias_calculo <- dias[, c("Nombre", "Revista", "Cuartil",
-                               "Dias_Envio_Inicio", "Dias_Respuesta_Envio", "Dias_Aceptado_Respuesta",
-                               "Dias_Aceptado_Envio", "Dias_Aceptado_Publicado")]
-      writexl::write_xlsx(dias_calculo, file.path(tmp_dir, "calculo_dias.xlsx"))
-
-      investigations_dst <- file.path(tmp_dir, "Investigaciones")
-      if (dir.exists(investigations_dst)) {
-        unlink(investigations_dst, recursive = TRUE, force = TRUE)
-      }
-
-      investigations_src <- upload_dir
-      dir.create(investigations_dst, showWarnings = FALSE)
-
-      investigation_items <- list.files(investigations_src, full.names = TRUE)
-      for(item in investigation_items) {
-        if (file.info(item)$isdir) {
-          file.copy(item, investigations_dst, recursive = TRUE)
-        }
-      }
-
-      old_wd <- setwd(tmp_dir)
-      on.exit(setwd(old_wd), add = TRUE)
-      zip(file, c("project_data.xlsx", "calculo_dias.xlsx", "Investigaciones"), flags = "-r9X")
+      tmp <- tempdir()
+      file.copy(data_file, file.path(tmp, "project_data.xlsx"), overwrite=TRUE)
+      dias <- days_data()[, c("Nombre","Revista","Cuartil",
+                              "Dias_Envio_Inicio","Dias_Respuesta_Envio",
+                              "Dias_Aceptado_Respuesta","Dias_Aceptado_Envio",
+                              "Dias_Aceptado_Publicado")]
+      writexl::write_xlsx(dias, file.path(tmp, "calculo_dias.xlsx"))
+      inv_dst <- file.path(tmp, "Investigaciones")
+      if (dir.exists(inv_dst)) unlink(inv_dst, recursive=TRUE, force=TRUE)
+      dir.create(inv_dst, showWarnings=FALSE)
+      items <- list.files(upload_dir, full.names=TRUE)
+      for (it in items) if (file.info(it)$isdir) file.copy(it, inv_dst, recursive=TRUE)
+      old <- setwd(tmp); on.exit(setwd(old), add=TRUE)
+      zip(file, c("project_data.xlsx","calculo_dias.xlsx","Investigaciones"), flags="-r9X")
     }
   )
 
-  # Importar datos desde un ZIP
+  # Importar datos desde ZIP
   observeEvent(input$import_zip_btn, {
     req(input$zip_upload)
     if (file_ext(input$zip_upload$name) != "zip") {
       output$import_status <- renderText("Por favor, suba un archivo ZIP válido.")
       return()
     }
-    temp_import_dir <- tempfile()
-    dir.create(temp_import_dir)
-    unzip(input$zip_upload$datapath, exdir = temp_import_dir)
-
-    # Se espera encontrar project_data.xlsx en el ZIP
-    excel_path <- file.path(temp_import_dir, "project_data.xlsx")
-    if (file.exists(excel_path)) {
-      file.copy(excel_path, data_file, overwrite = TRUE)
+    td <- tempfile(); dir.create(td)
+    unzip(input$zip_upload$datapath, exdir=td)
+    excel <- file.path(td, "project_data.xlsx")
+    if (file.exists(excel)) {
+      file.copy(excel, data_file, overwrite=TRUE)
     } else {
-      output$import_status <- renderText("El archivo ZIP no contiene 'project_data.xlsx'. Importación cancelada.")
+      output$import_status <- renderText("El ZIP no contiene 'project_data.xlsx'.")
       return()
     }
-
-    investigations_path <- file.path(temp_import_dir, "Investigaciones")
-    if (dir.exists(investigations_path)) {
-      if (dir.exists(upload_dir)) {
-        unlink(upload_dir, recursive = TRUE)
-      }
-      file.copy(investigations_path, ".", recursive = TRUE)
+    inv <- file.path(td, "Investigaciones")
+    if (dir.exists(inv)) {
+      if (dir.exists(upload_dir)) unlink(upload_dir, recursive=TRUE)
+      file.copy(inv, ".", recursive=TRUE)
     }
-
     project_data(load_project_data())
-    updateSelectInput(session, "project_select", choices = project_data()$Nombre)
-    updateSelectInput(session, "project_view", choices = c("", project_data()$Nombre))
-    updateSelectInput(session, "delete_project", choices = project_data()$Nombre)
-
-    output$import_status <- renderText("Importación completada exitosamente.")
-
-    showModal(modalDialog(
-      title = "Éxito",
-      "La importación de datos se realizó correctamente.",
-      easyClose = TRUE,
-      footer = modalButton("Cerrar")
-    ))
+    showModal(modalDialog(title="Éxito",
+                          "La importación se realizó correctamente.",
+                          easyClose=TRUE, footer=modalButton("Cerrar")))
   })
 
 }
