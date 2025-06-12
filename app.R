@@ -271,7 +271,7 @@ STORAGE_CONFIGURED <- check_dropbox_config()
 
 # Interfaz de usuario
 ui <- dashboardPage(
-  dashboardHeader(title = "SciControl - Dropbox Storage"),
+  dashboardHeader(title = "SciControl"),
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
