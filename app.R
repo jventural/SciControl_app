@@ -271,7 +271,7 @@ STORAGE_CONFIGURED <- check_dropbox_config()
 
 # Interfaz de usuario
 ui <- dashboardPage(
-  dashboardHeader(title = "SciControl"),
+  dashboardHeader(title = "SciControl - Dropbox Storage"),
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
@@ -331,7 +331,7 @@ ui <- dashboardPage(
                       condition = "input.status == 'Publicado'",
                       dateInput("publication_date", "Fecha de Publicación", value = NULL, format = "yyyy-mm-dd")
                     ),
-                    selectInput("research_line", "Línea de Investigación", choices = c("Pareja", "Educativo", "Infantil")),
+                    textInput("research_line", "Línea de Investigación", placeholder = "Ingrese la línea de investigación"),
                     textAreaInput("observations", "Observaciones", placeholder = "Ingrese sus observaciones aquí"),
                     actionButton("save_changes", "Guardar Proyecto", class = "btn-primary"),
                     actionButton("clear_fields", "Limpiar campos", class = "btn-warning")
@@ -677,7 +677,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "group", selected = proj$Grupo)
       updateDateInput(session, "acceptance_date", value = as.Date(proj$Fecha_Aceptado))
       updateDateInput(session, "publication_date", value = as.Date(proj$Fecha_Publicado))
-      updateSelectInput(session, "research_line", selected = proj$Linea_Investigacion)
+      updateTextInput(session, "research_line", value = proj$Linea_Investigacion)
       updateTextAreaInput(session, "observations", value = proj$Observaciones)
     }
   })
@@ -730,7 +730,7 @@ server <- function(input, output, session) {
     updateSelectInput(session, "group", selected = "Equipo de Investigación")
     updateDateInput(session, "acceptance_date", value = NULL)
     updateDateInput(session, "publication_date", value = NULL)
-    updateSelectInput(session, "research_line", selected = "Pareja")
+    updateTextInput(session, "research_line", value = "")
     updateTextAreaInput(session, "observations", value = "")
   })
 
