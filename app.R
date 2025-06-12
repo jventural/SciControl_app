@@ -271,7 +271,7 @@ STORAGE_CONFIGURED <- check_dropbox_config()
 
 # Interfaz de usuario
 ui <- dashboardPage(
-  dashboardHeader(title = "SciControl"),
+  dashboardHeader(title = "SciControl - Dropbox Storage"),
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
@@ -306,7 +306,8 @@ ui <- dashboardPage(
                     textInput("project_name", "Nombre del Proyecto"),
                     dateInput("start_date", "Fecha de Inicio", format = "yyyy-mm-dd", value = NULL),
                     conditionalPanel(
-                      condition = "input.status == 'Enviado'",
+                      condition = "input.status == 'Enviado' || input.status == 'Revisión' ||
+                           input.status == 'Aceptado' || input.status == 'Publicado'",
                       dateInput("send_date", "Fecha de Envío", format = "yyyy-mm-dd", value = NULL)
                     ),
                     conditionalPanel(
@@ -693,7 +694,7 @@ server <- function(input, output, session) {
     new_row <- data.frame(
       Nombre=input$project_name,
       Fecha_Inicio=as.character(input$start_date),
-      Fecha_Envio=if (input$status=="Enviado") as.character(input$send_date) else NA,
+      Fecha_Envio=if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado")) as.character(input$send_date) else NA,
       Fecha_Respuesta=fecha_resp,
       Revista=input$journal,
       Cuartil=input$quartile,
