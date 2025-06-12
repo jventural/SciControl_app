@@ -738,7 +738,7 @@ ui <- dashboardPage(
 
 # SERVER MEJORADO
 server <- function(input, output, session) {
-
+Sys.setenv(TZ = "America/Lima")
   # Variables reactivas
   project_data <- reactiveVal(load_project_data())
   files_refresh <- reactiveVal(0)
@@ -768,8 +768,13 @@ server <- function(input, output, session) {
   # Estado de sincronización
   output$sync_status_info <- renderUI({
     data <- project_data()
-    last_save_time <- if(file.exists(data_file)) {
-      format(file.mtime(data_file), "%Y-%m-%d %H:%M:%S")
+    last_save_time <- if (file.exists(data_file)) {
+      format(
+        file.mtime(data_file),
+        tz     = "America/Lima",
+        usetz  = FALSE,
+        format = "%Y-%m-%d %H:%M:%S"
+      )
     } else {
       "Nunca"
     }
@@ -1241,7 +1246,12 @@ server <- function(input, output, session) {
         else paste(round(x/1024^2, 1), "MB")
       })
 
-      all_backups$Fecha <- format(as.POSIXct(all_backups$modified, format="%Y-%m-%dT%H:%M:%SZ"), "%Y-%m-%d %H:%M")
+      all_backups$Fecha <- format(
+        as.POSIXct(all_backups$modified,
+                   format = "%Y-%m-%dT%H:%M:%SZ",
+                   tz     = "UTC"),
+        tz     = "America/Lima",
+        format = "%Y-%m-%d %H:%M")
 
       display_backups <- all_backups[, c("name", "Fecha", "Tamaño", "Tipo")]
       colnames(display_backups) <- c("Archivo", "Fecha", "Tamaño", "Tipo")
@@ -1485,7 +1495,12 @@ server <- function(input, output, session) {
         else paste(round(x/1024^3, 1), "GB")
       })
 
-      files$Fecha <- format(as.POSIXct(files$modified, format="%Y-%m-%dT%H:%M:%SZ"), "%Y-%m-%d %H:%M")
+      files$Fecha <- format(
+        as.POSIXct(files$modified,
+                   format = "%Y-%m-%dT%H:%M:%SZ",
+                   tz     = "UTC"),
+        tz     = "America/Lima",
+        format = "%Y-%m-%d %H:%M")
 
       df <- data.frame(
         Archivo = files$name,
