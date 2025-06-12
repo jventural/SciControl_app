@@ -383,7 +383,7 @@ calculate_days_improved <- function(data) {
 
 # UI MEJORADO
 ui <- dashboardPage(
-  dashboardHeader(title = "SciControl - Análisis Mejorado"),
+  dashboardHeader(title = "SciControl"),
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
