@@ -2131,6 +2131,7 @@ Sys.setenv(TZ = "America/Lima")
       Fecha_Aceptado = as.character(selected_project$Fecha_Aceptado %||% ""),
       Fecha_Publicado = as.character(selected_project$Fecha_Publicado %||% ""),
       Linea_Investigacion = as.character(selected_project$Linea_Investigacion %||% ""),
+      Observaciones       = as.character(selected_project$Observaciones %||% ""),
       stringsAsFactors = FALSE
     )
 
@@ -2149,7 +2150,8 @@ Sys.setenv(TZ = "America/Lima")
           list(width = '100px', targets = 6), # Estado
           list(width = '120px', targets = 7), # Grupo
           list(width = '120px', targets = 8), # Progreso
-          list(width = '200px', targets = 11) # Línea de investigación
+          list(width = '200px', targets = 11), # Línea de investigación
+          list(width = '300px', targets = 12)   # Observaciones
         )
       ),
       rownames = FALSE,
