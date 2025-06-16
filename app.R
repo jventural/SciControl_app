@@ -18,7 +18,7 @@ library(dplyr)
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 # CONFIGURACIÓN DE DROPBOX
-DROPBOX_ACCESS_TOKEN <- "sl.u.AFy7LoOBfhtUXHewN-gv_g2ArgE26RY38_oqqEjuVcI1vNlIwYBrcR2iSTrgrPUd_Tdi845KnM-_2gBOcf44YBOkobY4z_ntZEM0qcuCqlklbBCGY5qU-_cNiD42EGaUm3ICZD3seJGTnrvG1jLWUW-9mlxyTX--3o4YD5LaY8KIn8jqirZc2BSem0hQQydQOyKmab0KqZRMfjV2sGfPsGowXJvwC2DJb1A3DwOd2JNaUEd5hL0kbA1A4fxA59vgOmntLvdg09k-LqyVSmwn0Pv8N3QVl3fCPxjl_-waQ4azimVWT3OBKmOZOcnxBymR-zARgMvIrLlwtgvfk2vhF59rqIoxF3dQrLXR_0yZo7tLUpN6MImzav2ihQQ1DzFuJXMdrxdaU-kjx6XSVxg8df5zd1OfG5LdsIuzY-mVAS7IQUQNVSAz1Q86iw3ra-wgyxvJ3R_CO_UBHndpecQQzgJHeyJfNw5fvcg5GEkh6e3FQ6JmhFVQI3asJYTP2s21-iYBAAT5CbAkkqv5qZV6DPUr0qiS29XErX8p5dHkmvKmgBpZdJClce1wZUVq9avj1GBmrMXOMbtybelaLj4xAbvVn6LpmfFb6yrXvH0nhu46htno5iQ88-ya2q7_-hVnBd62_bUjBC6RJccae-As-SbSv72uAeZoT4I5oiIDsdCbHkm7iqi_CzOMwP06SlWtuw1o1TEXia7FLLIoUo-cefXAFvC3wxYLPeEXtJeywnqVT7mwVtfx3aR4ACq_rMkMjd45IDUmxE7CSYM3HvTW_W_lKpy4oZq_fD9_LN4xZZRl6gsIonNJcjjVvEDzSAQ_plJ-Fv9Q8B_TyFX2TRTNzZOagr6ix-JZv8paDUGYnl6uAJBSgeFrjXp_elLkyRDnQYaDWm_Gl94uYCqzSv7se3lvQbbPrpPDjln9omLAzH2iAkXzyDsCpxqB3KsxuZuZFA7UDxjkQ3-CcmQON0B8xWPE65KEKoNzPvKlJ3A-G0T54tb7ZS6j9JPpt7ui3j8HMQzdK763rkMew0GiXnsGLF-fh8dZrhN99XOn8ANkLLOIModGXJ6BhW9gkQytU0SfELpGxhcuX2MUzehHwbLorpFFHUSCqddR1NrYapM4Ll8JvuCiNcaf0WLAUaQypAZSV24UiZAccHHcI4twoTRcyniWpUy_nXVk2hNc2I4FuNAJJpfSW0iyhUH0SnR62QUjMDyq9lE9mrI46CH1t06cBJ0_KoskQUJiLtusGSs_eOWsDWyh04m6P31lDP6QgZ0d9-XDjBKAB_fIf76U9hn0SqhIlU-YGqgDfCr0L7-qkhTaUw"
+DROPBOX_ACCESS_TOKEN <- "sl.u.AFw3SFPOo-GGDmQQdKguL7ubXk97PjeHIgn3iV-m8S0B_HG1zRLvV5kn5zBpJLu_196_NsAD6s-kxkfKdwvbewYphmVygAPiDA49HxcYGEZ2l679IVLsnsmfx7mpTrPRO7yLBVZju06lgBD1_nInt3Q4PReN7Mku1kzP-TcjgAXIv9zhfQTqlwLdOUIWzc_IA3wVR5WA3nfzM82GsBQqZ6oWM788ozblBCogJImmEX8YEOQ6PWwI5c9RQNDCX7wiXrXo6b5aoZ7C84HeOPFUBD7Y9CK0xhOk2BvpKDSGWPdX_oueN1A4lQ_SvAMxoM3cgXWWM9VsMQrSo7NfSSHBcMclUmstcHZnBfq-F4kofHlbgx8jdOkGYJLNUuqMYFk5vlVtMCD7uWDeuy73fIXf5Xz6WR5IY_xti4BVBcqMwzrAZCGTWAusxqIL0BqdVWwhEwmzZHaVamFEJUNkjYnWPayjMf5vR0x_zf5Gn5L5v3R5ysiUZNSc-uTOLmXum4Swv1a3EykyIam8rdK2z6eFionEZpQqqLKeeIo_kwJrw7O_bpijXJPcW5vDUyv7i85uDs1olTMBzfNCHRwtTySUc82mVqnmEQe1TAzQpIF7TiMmCIbaSQgJWRGIJ0rZTzaCrzXwa_KKPI3jQsSfB71AEgMb_m_WGDWMoHFh_ucRy1crnxJ_bvrspRSFFD7SCXePCQtoKJuWOHrRfo1qbrytw-ulU_2MYU_jv5AJ7V2csJFiqfpkyPwKVRv6QYBb_oHg719im0i_QFwHld86QC5vRFcaJNim4Y0tHj42WqoMQJ_7EA0-qBc7uqpaPZslr7Kt-V8E-1-tEGmtSTrkJcJQFDyW6n7Swkkt44IG3jDt-Ik2kcku5UJWMOLZtRlxg4Pi3OjkM48pR2mKkauDGdOCED92k5NeNdAQRAM2Lst1Hr9BHS_vcVnJsYLmC1QkRT6ASAAaMwnSLWSwDlzSR9o5Q2R6dwWUeP5LmdNq13rI335Cn_PI2MuWgijuhvREsjK8lbFfethU0SnYS1qm3w1G8fPRE6o8vCVlViOFM6U4nyJNDJsFM2Oo8uvnGitEfEkpC87R-0iI5rTadIggSfiGojTfZnR20t9RScClBfZKRt6iS01wfX4zgB0SX6xABjstjZt8hc8465WrCE7SdmG9IXIcawNKzA2mVjbCCStZYlumTHcXDzbwhiaO7YeZ2RpqaiQ94FXzM9cfVg5GuPwowJ7gjEjT-pqMccPxUYZDpKfa3tHsyquXFid2jkwPsL3GRqlWgH0ti5-aQt0qeY6Z7i2ruxyX2R08dA0_YDhf2LBVe_mVixxGWHLTbKx9MxC5-b8"
 
 # Función para verificar configuración de Dropbox
 check_dropbox_config <- function() {
@@ -1235,7 +1235,8 @@ Sys.setenv(TZ = "America/Lima")
     # Seleccionar columnas para mostrar
     display_cols <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                       "Revista", "Cuartil", "Estado_Display", "Grupo", "Progreso_Barra",
-                      "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion")
+                      "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
+                      "Observaciones")
 
     # Verificar qué columnas existen
     available_cols <- intersect(display_cols, colnames(data))
@@ -1675,16 +1676,24 @@ Sys.setenv(TZ = "America/Lima")
         tz     = "America/Lima",
         format = "%Y-%m-%d %H:%M")
 
+      obs_text <- ""
+      pdata <- project_data()
+      if (!is.null(pdata) && nrow(pdata) > 0 && "Observaciones" %in% colnames(pdata)) {
+        obs_val <- pdata$Observaciones[pdata$Nombre == project_name]
+        if (length(obs_val) > 0) obs_text <- as.character(obs_val[1])
+      }
+
       df <- data.frame(
         Archivo = files$name,
         Carpeta = files$Carpeta,
         Tamaño = files$Tamaño,
         Fecha = files$Fecha,
+        Observaciones = rep(obs_text, nrow(files)),
         Path = files$path,
         stringsAsFactors = FALSE
       )
 
-      return(datatable(df[, 1:4], options = list(pageLength = 10), rownames = FALSE, selection = "single"))
+      return(datatable(df[, c(1:4,5)], options = list(pageLength = 10), rownames = FALSE, selection = "single"))
     }, error = function(e) {
       error_df <- data.frame(
         Error = paste("Error al cargar archivos:", e$message),
@@ -2150,8 +2159,8 @@ Sys.setenv(TZ = "America/Lima")
           list(width = '100px', targets = 6), # Estado
           list(width = '120px', targets = 7), # Grupo
           list(width = '120px', targets = 8), # Progreso
-          list(width = '200px', targets = 11), # Línea de investigación
-          list(width = '300px', targets = 12)   # Observaciones
+          list(width = '150px', targets = 11),    # Línea investigación
+          list(width = '300px', targets = 12)     # Observaciones
         )
       ),
       rownames = FALSE,
