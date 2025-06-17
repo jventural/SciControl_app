@@ -29,55 +29,281 @@ check_dropbox_config <- function() {
   return(TRUE)
 }
 
-# Función para subir archivo a Dropbox
+# FUNCIONES MEJORADAS PARA SANITIZACIÓN Y VALIDACIÓN DE PATHS
+
+# Función mejorada para sanitizar nombres de proyecto
+sanitize_project_name <- function(project_name) {
+  if (is.null(project_name) || is.na(project_name) || project_name == "") {
+    return("proyecto_sin_nombre")
+  }
+
+  # Convertir a string y limpiar caracteres problemáticos
+  name <- as.character(project_name)
+
+  # Remover acentos y caracteres especiales
+  name <- iconv(name, to = "ASCII//TRANSLIT")
+
+  # Reemplazar caracteres no válidos para Dropbox (uno por uno para evitar errores regex)
+  name <- gsub("<", "_", name)
+  name <- gsub(">", "_", name)
+  name <- gsub(":", "_", name)
+  name <- gsub("\"", "_", name)
+  name <- gsub("\\|", "_", name)
+  name <- gsub("\\?", "_", name)
+  name <- gsub("\\*", "_", name)
+  name <- gsub("\\\\", "_", name)
+  name <- gsub("/", "_", name)
+  name <- gsub("\\[", "_", name)
+  name <- gsub("\\]", "_", name)
+  name <- gsub("\\{", "_", name)
+  name <- gsub("\\}", "_", name)
+  name <- gsub("\\(", "_", name)
+  name <- gsub("\\)", "_", name)
+  name <- gsub("@", "_", name)
+  name <- gsub("#", "_", name)
+  name <- gsub("\\$", "_", name)
+  name <- gsub("%", "_", name)
+  name <- gsub("\\^", "_", name)
+  name <- gsub("&", "_", name)
+  name <- gsub("\\+", "_", name)
+  name <- gsub("=", "_", name)
+  name <- gsub(";", "_", name)
+  name <- gsub("'", "_", name)
+  name <- gsub(",", "_", name)
+  name <- gsub("~", "_", name)
+  name <- gsub("`", "_", name)
+
+  # Reemplazar espacios y puntos por guiones bajos
+  name <- gsub("\\s", "_", name)
+  name <- gsub("\\.", "_", name)
+
+  # Remover caracteres de control
+  name <- gsub("[[:cntrl:]]", "", name)
+
+  # Mantener solo caracteres alfanuméricos, guiones y guiones bajos
+  name <- gsub("[^a-zA-Z0-9_-]", "_", name)
+
+  # Reemplazar múltiples guiones bajos consecutivos por uno solo
+  name <- gsub("_{2,}", "_", name)
+
+  # Remover guiones bajos al inicio y final
+  name <- gsub("^_+|_+$", "", name)
+
+  # Si el nombre queda vacío, usar un nombre por defecto
+  if (name == "" || nchar(name) == 0) {
+    name <- "proyecto_sin_nombre"
+  }
+
+  # Limitar longitud (Dropbox tiene límites de path)
+  if (nchar(name) > 30) {
+    name <- substr(name, 1, 30)
+    name <- gsub("_+$", "", name) # Remover guiones bajos finales después del corte
+  }
+
+  return(name)
+}
+
+# Función para sanitizar nombres de archivo
+sanitize_file_name <- function(file_name) {
+  if (is.null(file_name) || is.na(file_name) || file_name == "") {
+    return("archivo_sin_nombre.txt")
+  }
+
+  # Separar nombre y extensión
+  file_parts <- tools::file_path_sans_ext(file_name)
+  file_ext <- tools::file_ext(file_name)
+
+  # Sanitizar el nombre del archivo (sin extensión)
+  clean_name <- iconv(file_parts, to = "ASCII//TRANSLIT")
+
+  # Reemplazar caracteres problemáticos uno por uno
+  clean_name <- gsub("<", "_", clean_name)
+  clean_name <- gsub(">", "_", clean_name)
+  clean_name <- gsub(":", "_", clean_name)
+  clean_name <- gsub("\"", "_", clean_name)
+  clean_name <- gsub("\\|", "_", clean_name)
+  clean_name <- gsub("\\?", "_", clean_name)
+  clean_name <- gsub("\\*", "_", clean_name)
+  clean_name <- gsub("\\\\", "_", clean_name)
+  clean_name <- gsub("/", "_", clean_name)
+  clean_name <- gsub("\\[", "_", clean_name)
+  clean_name <- gsub("\\]", "_", clean_name)
+  clean_name <- gsub("\\{", "_", clean_name)
+  clean_name <- gsub("\\}", "_", clean_name)
+  clean_name <- gsub("\\(", "_", clean_name)
+  clean_name <- gsub("\\)", "_", clean_name)
+  clean_name <- gsub("@", "_", clean_name)
+  clean_name <- gsub("#", "_", clean_name)
+  clean_name <- gsub("\\$", "_", clean_name)
+  clean_name <- gsub("%", "_", clean_name)
+  clean_name <- gsub("\\^", "_", clean_name)
+  clean_name <- gsub("&", "_", clean_name)
+  clean_name <- gsub("\\+", "_", clean_name)
+  clean_name <- gsub("=", "_", clean_name)
+  clean_name <- gsub(";", "_", clean_name)
+  clean_name <- gsub("'", "_", clean_name)
+  clean_name <- gsub(",", "_", clean_name)
+  clean_name <- gsub("~", "_", clean_name)
+  clean_name <- gsub("`", "_", clean_name)
+
+  # Reemplazar espacios
+  clean_name <- gsub("\\s", "_", clean_name)
+
+  # Mantener solo caracteres seguros
+  clean_name <- gsub("[^a-zA-Z0-9_.-]", "_", clean_name)
+
+  # Reemplazar múltiples guiones bajos
+  clean_name <- gsub("_{2,}", "_", clean_name)
+  clean_name <- gsub("^_+|_+$", "", clean_name)
+
+  # Si el nombre queda vacío, usar nombre por defecto
+  if (clean_name == "" || nchar(clean_name) == 0) {
+    clean_name <- "archivo"
+  }
+
+  # Limitar longitud del nombre
+  if (nchar(clean_name) > 50) {
+    clean_name <- substr(clean_name, 1, 50)
+    clean_name <- gsub("_+$", "", clean_name)
+  }
+
+  # Sanitizar extensión
+  if (file_ext != "") {
+    file_ext <- gsub("[^a-zA-Z0-9]", "", file_ext)
+    return(paste0(clean_name, ".", file_ext))
+  } else {
+    return(clean_name)
+  }
+}
+
+# Función para validar y normalizar paths de Dropbox
+validate_dropbox_path <- function(path) {
+  if (is.null(path) || is.na(path) || path == "") {
+    return("/archivo_sin_nombre.txt")
+  }
+
+  # Asegurar que comience con /
+  if (!startsWith(path, "/")) {
+    path <- paste0("/", path)
+  }
+
+  # Reemplazar múltiples barras por una sola
+  path <- gsub("/+", "/", path)
+
+  # Validar longitud total del path (Dropbox tiene límite de ~400 caracteres)
+  if (nchar(path) > 400) {
+    warning("Path muy largo, puede causar problemas en Dropbox")
+    # Truncar el path manteniendo la extensión
+    path_parts <- strsplit(path, "/")[[1]]
+    filename <- path_parts[length(path_parts)]
+    folder_parts <- path_parts[-length(path_parts)]
+
+    # Reducir carpetas si es necesario
+    while (nchar(paste(folder_parts, collapse = "/")) + nchar(filename) > 390 && length(folder_parts) > 1) {
+      folder_parts <- folder_parts[-length(folder_parts)]
+    }
+
+    path <- paste0(paste(folder_parts, collapse = "/"), "/", filename)
+  }
+
+  return(path)
+}
+
+# FUNCIÓN MEJORADA PARA SUBIR ARCHIVO A DROPBOX
 upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
   tryCatch({
-    timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-    file_base <- tools::file_path_sans_ext(file_name)
-    file_ext <- tools::file_ext(file_name)
-    unique_name <- paste0(file_base, "_", timestamp, ".", file_ext)
+    # Validar entrada
+    if (!file.exists(file_path)) {
+      return(list(success = FALSE, error = "El archivo no existe"))
+    }
 
-    if (!is.null(folder_path)) {
+    if (is.null(file_name) || file_name == "") {
+      file_name <- basename(file_path)
+    }
+
+    # Sanitizar nombre del archivo
+    clean_file_name <- sanitize_file_name(file_name)
+
+    # Agregar timestamp para evitar duplicados
+    timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+    file_base <- tools::file_path_sans_ext(clean_file_name)
+    file_ext <- tools::file_ext(clean_file_name)
+
+    if (file_ext != "") {
+      unique_name <- paste0(file_base, "_", timestamp, ".", file_ext)
+    } else {
+      unique_name <- paste0(file_base, "_", timestamp)
+    }
+
+    # Construir path de Dropbox
+    if (!is.null(folder_path) && folder_path != "") {
+      # Limpiar folder_path
+      folder_path <- gsub("^/+|/+$", "", folder_path) # Remover barras al inicio/final
+      folder_path <- gsub("/+", "/", folder_path) # Reemplazar múltiples barras
       dropbox_path <- paste0("/", folder_path, "/", unique_name)
     } else {
       dropbox_path <- paste0("/", unique_name)
     }
 
+    # Validar path final
+    dropbox_path <- validate_dropbox_path(dropbox_path)
+
+    # Log para debugging
+    cat("Path original:", file_name, "\n")
+    cat("Path sanitizado:", unique_name, "\n")
+    cat("Path completo Dropbox:", dropbox_path, "\n")
+
+    # Leer archivo
     file_content <- readBin(file_path, "raw", file.info(file_path)$size)
 
+    # Preparar headers para Dropbox
+    dropbox_api_arg <- list(
+      path = dropbox_path,
+      mode = "add",
+      autorename = TRUE,
+      mute = FALSE
+    )
+
+    cat("API Arg JSON:", jsonlite::toJSON(dropbox_api_arg, auto_unbox = TRUE), "\n")
+
+    # Realizar upload
     response <- POST(
       url = "https://content.dropboxapi.com/2/files/upload",
       add_headers(
         "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
-        "Dropbox-API-Arg" = jsonlite::toJSON(list(
-          path = dropbox_path,
-          mode = "add",
-          autorename = TRUE
-        ), auto_unbox = TRUE),
+        "Dropbox-API-Arg" = jsonlite::toJSON(dropbox_api_arg, auto_unbox = TRUE),
         "Content-Type" = "application/octet-stream"
       ),
       body = file_content
     )
 
+    cat("Response status:", response$status_code, "\n")
+
     if (response$status_code == 200) {
       result <- content(response, "parsed")
-      share_response <- POST(
-        url = "https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings",
-        add_headers(
-          "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
-          "Content-Type" = "application/json"
-        ),
-        body = jsonlite::toJSON(list(
-          path = result$path_display,
-          settings = list(requested_visibility = "public")
-        ), auto_unbox = TRUE)
-      )
 
+      # Intentar crear enlace compartido
       share_url <- ""
-      if (share_response$status_code == 200) {
-        share_result <- content(share_response, "parsed")
-        share_url <- gsub("\\?dl=0", "?dl=1", share_result$url)
-      }
+      tryCatch({
+        share_response <- POST(
+          url = "https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings",
+          add_headers(
+            "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
+            "Content-Type" = "application/json"
+          ),
+          body = jsonlite::toJSON(list(
+            path = result$path_display,
+            settings = list(requested_visibility = "public")
+          ), auto_unbox = TRUE)
+        )
+
+        if (share_response$status_code == 200) {
+          share_result <- content(share_response, "parsed")
+          share_url <- gsub("\\?dl=0", "?dl=1", share_result$url)
+        }
+      }, error = function(e) {
+        cat("Error creando enlace compartido:", e$message, "\n")
+      })
 
       return(list(
         success = TRUE,
@@ -85,16 +311,19 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
         name = result$name,
         size = result$size,
         url = share_url,
-        original_name = file_name
+        original_name = file_name,
+        clean_name = unique_name
       ))
     } else {
       error_content <- content(response, "text")
+      cat("Error content:", error_content, "\n")
       return(list(
         success = FALSE,
         error = paste("Error HTTP:", response$status_code, "-", error_content)
       ))
     }
   }, error = function(e) {
+    cat("Error en upload_to_dropbox:", e$message, "\n")
     return(list(success = FALSE, error = as.character(e)))
   })
 }
@@ -307,17 +536,6 @@ if (!dir.exists(data_dir)) {
   dir.create(data_dir)
 }
 data_file <- file.path(data_dir, "project_data.xlsx")
-
-# Función para sanitizar el nombre del proyecto
-sanitize_project_name <- function(project_name) {
-  name <- gsub("[:/\\\\?<>\\|*\"'\\s]", "_", project_name)
-  name <- gsub("_{2,}", "_", name)
-  name <- trimws(name, whitespace = "_")
-  if (nchar(name) > 30) {
-    name <- substr(name, 1, 30)
-  }
-  return(name)
-}
 
 # FUNCIÓN MODIFICADA PARA CARGAR DATOS (CON DROPBOX PRIORITARIO)
 load_project_data <- function() {
@@ -765,7 +983,7 @@ ui <- dashboardPage(
 
 # SERVER MEJORADO
 server <- function(input, output, session) {
-Sys.setenv(TZ = "America/Lima")
+  Sys.setenv(TZ = "America/Lima")
 
 
 
@@ -1310,7 +1528,7 @@ Sys.setenv(TZ = "America/Lima")
           paste("✅ Sincronización exitosa desde Dropbox.",
                 "Cargados", nrow(dropbox_data), "proyectos.")
         )
-        showNotification("Datos sincronizados desde Dropbox", type = "success")
+        showNotification("Datos sincronizados desde Dropbox", type = "message")
       } else {
         output$sync_operation_status <- renderText("⚠️ No se encontraron datos en Dropbox.")
       }
@@ -1344,7 +1562,7 @@ Sys.setenv(TZ = "America/Lima")
                 "\n📁 Archivo principal:", save_result$main_path,
                 "\n📋 Backup:", save_result$backup_path)
         )
-        showNotification("Datos sincronizados a Dropbox", type = "success")
+        showNotification("Datos sincronizados a Dropbox", type = "message")
       } else {
         output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", save_result$error))
       }
@@ -1384,7 +1602,8 @@ Sys.setenv(TZ = "America/Lima")
                 "\n📋 Archivo:", backup_result$name,
                 "\n📁 Ubicación:", backup_result$path)
         )
-        showNotification("Backup manual creado", type = "success")
+        showNotification("Backup manual creado", type = "message")
+
       } else {
         output$sync_operation_status <- renderText(paste("❌ Error al crear backup:", backup_result$error))
       }
@@ -1573,7 +1792,7 @@ Sys.setenv(TZ = "America/Lima")
                 if(current_backup_result$success) paste("\n💾 Nuevo backup creado:", current_backup_result$backup_path) else "")
         )
 
-        showNotification("Backup restaurado exitosamente", type = "success")
+        showNotification("Backup restaurado exitosamente", type = "message")
 
       } else {
         output$sync_operation_status <- renderText(paste("❌ Error al descargar backup. Código:", response$status_code))
@@ -1588,7 +1807,7 @@ Sys.setenv(TZ = "America/Lima")
     })
   })
 
-  # SUBIDA DE EVIDENCIAS A DROPBOX
+  # EVENTO MEJORADO PARA SUBIDA DE EVIDENCIAS
   observeEvent(input$upload_btn, {
     req(input$file_upload, input$project_select, input$file_type)
 
@@ -1604,9 +1823,32 @@ Sys.setenv(TZ = "America/Lima")
     output$upload_status <- renderText("📤 Subiendo archivo a Dropbox...")
 
     tryCatch({
-      sanitized_project <- sanitize_project_name(project_name)
-      folder_path <- paste0("scicontrol/", sanitized_project, "/", file_type)
+      # Validar inputs
+      if (is.null(project_name) || project_name == "") {
+        output$upload_status <- renderText("❌ Error: Seleccione un proyecto válido.")
+        return()
+      }
 
+      if (is.null(file_type) || file_type == "") {
+        output$upload_status <- renderText("❌ Error: Seleccione un tipo de archivo válido.")
+        return()
+      }
+
+      if (is.null(file_info) || is.null(file_info$datapath) || !file.exists(file_info$datapath)) {
+        output$upload_status <- renderText("❌ Error: Archivo no válido o no encontrado.")
+        return()
+      }
+
+      # Sanitizar nombre del proyecto
+      sanitized_project <- sanitize_project_name(project_name)
+      cat("Proyecto original:", project_name, "\n")
+      cat("Proyecto sanitizado:", sanitized_project, "\n")
+
+      # Construir folder path
+      folder_path <- paste0("scicontrol/", sanitized_project, "/", file_type)
+      cat("Folder path:", folder_path, "\n")
+
+      # Subir archivo
       result <- upload_to_dropbox(file_info$datapath, file_info$name, folder_path)
 
       if (result$success) {
@@ -1620,19 +1862,27 @@ Sys.setenv(TZ = "America/Lima")
 
         output$upload_status <- renderText(
           paste("✅ Archivo subido exitosamente a Dropbox:",
-                "\nNombre:", result$original_name,
-                "\nTamaño:", size_text,
-                "\nCarpeta:", file_type,
-                "\nProyecto:", project_name,
-                "\nPath:", result$path,
-                if (result$url != "") paste("\nEnlace:", result$url) else "")
+                "\n📁 Nombre original:", result$original_name,
+                "\n📄 Nombre en Dropbox:", result$clean_name,
+                "\n📊 Tamaño:", size_text,
+                "\n📂 Carpeta:", file_type,
+                "\n🔬 Proyecto:", project_name,
+                "\n📍 Path completo:", result$path,
+                if (result$url != "") paste("\n🔗 Enlace directo:", result$url) else "")
         )
+
         files_refresh(isolate(files_refresh()) + 1)
+        showNotification("Archivo subido exitosamente", type = "message")
+
       } else {
         output$upload_status <- renderText(paste("❌ Error al subir archivo:", result$error))
+        showNotification("Error al subir archivo", type = "error")
       }
     }, error = function(e) {
-      output$upload_status <- renderText(paste("❌ Error inesperado:", e$message))
+      error_msg <- paste("❌ Error inesperado:", e$message)
+      output$upload_status <- renderText(error_msg)
+      cat("Error en upload_btn:", e$message, "\n")
+      showNotification("Error inesperado al subir archivo", type = "error")
     })
   })
 
@@ -2067,106 +2317,6 @@ Sys.setenv(TZ = "America/Lima")
     updateDateInput(session, "publication_date", value = NULL)
     updateTextInput(session, "research_line", value = "")
     updateTextAreaInput(session, "observations", value = "")
-  })
-
-  # TABLA DE ARCHIVOS EN DROPBOX (VERSIÓN AJUSTADA)
-  output$files_table <- renderDT({
-    files_refresh()
-
-    if (input$project_view == "" || !STORAGE_CONFIGURED) {
-      empty <- data.frame(
-        Nombre = character(),
-        Fecha_Inicio = character(),
-        Fecha_Envio = character(),
-        Fecha_Respuesta = character(),
-        Revista = character(),
-        Cuartil = character(),
-        Estado = character(),
-        Grupo = character(),
-        Progreso = character(),
-        Fecha_Aceptado = character(),
-        Fecha_Publicado = character(),
-        Linea_Investigacion = character()
-      )
-      return(datatable(empty, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE, selection = "single"))
-    }
-
-    project_name <- input$project_view
-
-    # Obtener datos del proyecto seleccionado
-    data <- project_data()
-    selected_project <- data[data$Nombre == project_name, ]
-
-    if (nrow(selected_project) == 0) {
-      empty <- data.frame(
-        Nombre = character(),
-        Fecha_Inicio = character(),
-        Fecha_Envio = character(),
-        Fecha_Respuesta = character(),
-        Revista = character(),
-        Cuartil = character(),
-        Estado = character(),
-        Grupo = character(),
-        Progreso = character(),
-        Fecha_Aceptado = character(),
-        Fecha_Publicado = character(),
-        Linea_Investigacion = character()
-      )
-      return(datatable(empty, options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE, selection = "single"))
-    }
-
-    # Crear la barra de progreso HTML
-    progress_value <- as.numeric(selected_project$Progreso)
-    if (is.na(progress_value)) progress_value <- 0
-
-    progress_html <- sprintf(
-      '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px;">
-       <div style="width:%d%%; background-color:#e74c3c; color:white; text-align:center; padding:5px 0; border-radius:5px;">%d%%</div>
-     </div>',
-      progress_value, progress_value
-    )
-
-    # Preparar datos para mostrar
-    display_data <- data.frame(
-      Nombre = as.character(selected_project$Nombre),
-      Fecha_Inicio = as.character(selected_project$Fecha_Inicio %||% ""),
-      Fecha_Envio = as.character(selected_project$Fecha_Envio %||% ""),
-      Fecha_Respuesta = as.character(selected_project$Fecha_Respuesta %||% ""),
-      Revista = as.character(selected_project$Revista %||% ""),
-      Cuartil = as.character(selected_project$Cuartil %||% ""),
-      Estado = as.character(selected_project$Estado %||% ""),
-      Grupo = as.character(selected_project$Grupo %||% ""),
-      Progreso = progress_html,
-      Fecha_Aceptado = as.character(selected_project$Fecha_Aceptado %||% ""),
-      Fecha_Publicado = as.character(selected_project$Fecha_Publicado %||% ""),
-      Linea_Investigacion = as.character(selected_project$Linea_Investigacion %||% ""),
-      Observaciones       = as.character(selected_project$Observaciones %||% ""),
-      stringsAsFactors = FALSE
-    )
-
-    # Crear tabla con scroll horizontal para manejar muchas columnas
-    return(datatable(
-      display_data,
-      options = list(
-        pageLength = 10,
-        scrollX = TRUE,
-        autoWidth = TRUE,
-        columnDefs = list(
-          list(width = '200px', targets = 0), # Nombre
-          list(width = '100px', targets = c(1,2,3,9,10)), # Fechas
-          list(width = '150px', targets = 4), # Revista
-          list(width = '80px', targets = 5), # Cuartil
-          list(width = '100px', targets = 6), # Estado
-          list(width = '120px', targets = 7), # Grupo
-          list(width = '120px', targets = 8), # Progreso
-          list(width = '150px', targets = 11),    # Línea investigación
-          list(width = '300px', targets = 12)     # Observaciones
-        )
-      ),
-      rownames = FALSE,
-      selection = "single",
-      escape = FALSE # Importante para que se renderice el HTML del progreso
-    ))
   })
 
   # Eliminar proyecto
