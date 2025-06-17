@@ -2480,22 +2480,22 @@
   },
   "files": {
     ".RData": {
-      "checksum": "0f781840acd399c78191c80983014742"
+      "checksum": "cf0190442ded3349548ca75fb5da4f69"
     },
     "app anterior.R": {
-      "checksum": "c770b16d0a5ffa090f8e4f979e89c323"
+      "checksum": "0adda15bf4d06b0c4670f792a6e087db"
     },
     "app version cloud.R": {
       "checksum": "54aa90a71d0b34180ee45283954eae3a"
     },
     "app.R": {
-      "checksum": "44a20db89e2973038f5617b11921b39c"
+      "checksum": "0fa89d35f4f518a41aff9da007b75780"
     },
     "Codigo de activación.R": {
       "checksum": "1059c8ee34b4788b17f42ec17ae30320"
     },
     "data/project_data.xlsx": {
-      "checksum": "c12e0429f5e81244e391e4bcf1713a45"
+      "checksum": "c55f16c9909587c1fa835dc7a3080821"
     },
     "Investigaciones/Compromiso, satisfacción con los estudios, cocreac/Fotos de Coordinaciones/24.02.25-FC.png": {
       "checksum": "7cb20b8185c5ffcaaec5762583abb4c1"
@@ -2790,6 +2790,9 @@
     },
     "token.rds": {
       "checksum": "bba8f1b8057ca8506219bc3cd3579392"
+    },
+    "version_casi_lista.R": {
+      "checksum": "4e48f8d754f1c47e3effdd0e56a333ac"
     }
   },
   "users": null
