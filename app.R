@@ -976,11 +976,26 @@ ui <- dashboardPage(
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
+      id = "sidebar_menu",
+      # Agregar Proyecto debe ser el PRIMER elemento para que se abra por defecto
+      menuItem("Agregar Proyecto", tabName = "agregar", icon = icon("plus")),
+
+      # Resto de pestañas normales
+      menuItem("Ver Proyectos", tabName = "ver", icon = icon("table")),
+      menuItem("Análisis de Tiempos", tabName = "dias", icon = icon("clock")),
+      menuItem("Dashboard Visual", tabName = "dashboard", icon = icon("chart-line")),
+      menuItem("Subida de Evidencias", tabName = "evidencias", icon = icon("upload")),
+      menuItem("Ver Archivos Subidos", tabName = "ver_evidencias", icon = icon("folder-open")),
+      menuItem("Sincronización", tabName = "sync", icon = icon("sync")),
+      menuItem("Descargar Datos", tabName = "descargar", icon = icon("download")),
+      menuItem("Importar Datos", tabName = "importar", icon = icon("file-upload")),
+
       # Pestaña de configuración - Solo visible en modo desarrollador
       conditionalPanel(
         condition = "output.developer_mode == true",
         menuItem("⚙️ Configuración", tabName = "config", icon = icon("cog"))
       ),
+
       # Indicador de modo desarrollador y botón de salida
       conditionalPanel(
         condition = "output.developer_mode == true",
@@ -993,16 +1008,7 @@ ui <- dashboardPage(
                              style = "margin-top: 5px; font-size: 10px;")
             )
         )
-      ),
-      menuItem("Agregar Proyecto", tabName = "agregar", icon = icon("plus")),
-      menuItem("Ver Proyectos", tabName = "ver", icon = icon("table")),
-      menuItem("Análisis de Tiempos", tabName = "dias", icon = icon("clock")),
-      menuItem("Dashboard Visual", tabName = "dashboard", icon = icon("chart-line")),
-      menuItem("Subida de Evidencias", tabName = "evidencias", icon = icon("upload")),
-      menuItem("Ver Archivos Subidos", tabName = "ver_evidencias", icon = icon("folder-open")),
-      menuItem("Sincronización", tabName = "sync", icon = icon("sync")),
-      menuItem("Descargar Datos", tabName = "descargar", icon = icon("download")),
-      menuItem("Importar Datos", tabName = "importar", icon = icon("file-upload"))
+      )
     )
   ),
   dashboardBody(
@@ -1057,81 +1063,7 @@ ui <- dashboardPage(
       "))
     ),
     tabItems(
-      # Tab: Configuración Dropbox (Solo visible en modo desarrollador)
-      tabItem(tabName = "config",
-              # Indicador de modo desarrollador
-              fluidRow(
-                box(title = "🔓 Modo Desarrollador Activo",
-                    width = 12, status = "success", solidHeader = TRUE,
-                    div(class = "alert alert-success",
-                        HTML("✅ <strong>Acceso de desarrollador activado.</strong> Tienes acceso completo a las configuraciones OAuth de Dropbox.")),
-                    div(style = "text-align: center; margin: 10px 0;",
-                        actionButton("exit_developer_mode_main", "🔒 Salir del Modo Desarrollador",
-                                     class = "btn-warning", style = "margin-right: 10px;"),
-                        span("(Esto ocultará esta pestaña)", style = "font-size: 12px; color: #666;")
-                    )
-                )
-              ),
-
-              fluidRow(
-                box(title = "🔧 Configuración de Dropbox OAuth 2.0",
-                    width = 12, status = "primary",
-
-                    div(id = "oauth_status_display",
-                        htmlOutput("oauth_status_info")
-                    ),
-
-                    br(),
-
-                    conditionalPanel(
-                      condition = "output.show_oauth_buttons",
-                      h4("🔐 Autorización OAuth"),
-
-                      div(class = "alert alert-info",
-                          HTML("📋 <strong>Importante:</strong> Asegúrate de que tu app de Dropbox tenga configurados estos Redirect URIs:<br>
-                               • <code>http://localhost:1410/</code><br>
-                               • <code>http://localhost:1411/</code><br>
-                               • <code>http://localhost:1412/</code><br>
-                               • <code>http://localhost:1413/</code><br>
-                               • <code>http://localhost:1414/</code><br>
-                               <br>Ve a <a href='https://www.dropbox.com/developers/apps' target='_blank'>tu app en Dropbox</a> → Settings → OAuth2 redirect URIs")
-                      ),
-
-                      p("Autoriza el acceso a tu cuenta de Dropbox:"),
-
-                      fluidRow(
-                        column(3,
-                               actionButton("start_oauth", "🚀 Iniciar Autorización OAuth",
-                                            class = "btn-success", style = "width: 100%;")
-                        ),
-                        column(3,
-                               actionButton("test_auth_url", "🔗 Probar URL de Autorización",
-                                            class = "btn-warning", style = "width: 100%;")
-                        ),
-                        column(3,
-                               actionButton("manual_auth", "✍️ Autorización Manual",
-                                            class = "btn-secondary", style = "width: 100%;")
-                        ),
-                        column(3,
-                               actionButton("refresh_token", "🔄 Refrescar Token",
-                                            class = "btn-info", style = "width: 100%;")
-                        )
-                      ),
-                      br()
-                    ),
-
-                    verbatimTextOutput("oauth_operation_status")
-                )
-              ),
-
-              fluidRow(
-                box(title = "📊 Estado de Tokens", width = 12,
-                    DTOutput("token_status_table")
-                )
-              )
-      ),
-
-      # Tab: Agregar Proyecto
+      # Tab: Agregar Proyecto (PRIMERA pestaña que se abre por defecto)
       tabItem(tabName = "agregar",
               fluidRow(
                 box(title = "Agregar o Actualizar Proyecto", width = 12, status = "primary",
@@ -1326,6 +1258,80 @@ ui <- dashboardPage(
                     verbatimTextOutput("import_status")
                 )
               )
+      ),
+
+      # Tab: Configuración Dropbox (Solo visible en modo desarrollador)
+      tabItem(tabName = "config",
+              # Indicador de modo desarrollador
+              fluidRow(
+                box(title = "🔓 Modo Desarrollador Activo",
+                    width = 12, status = "success", solidHeader = TRUE,
+                    div(class = "alert alert-success",
+                        HTML("✅ <strong>Acceso de desarrollador activado.</strong> Tienes acceso completo a las configuraciones OAuth de Dropbox.")),
+                    div(style = "text-align: center; margin: 10px 0;",
+                        actionButton("exit_developer_mode_main", "🔒 Salir del Modo Desarrollador",
+                                     class = "btn-warning", style = "margin-right: 10px;"),
+                        span("(Esto ocultará esta pestaña)", style = "font-size: 12px; color: #666;")
+                    )
+                )
+              ),
+
+              fluidRow(
+                box(title = "🔧 Configuración de Dropbox OAuth 2.0",
+                    width = 12, status = "primary",
+
+                    div(id = "oauth_status_display",
+                        htmlOutput("oauth_status_info")
+                    ),
+
+                    br(),
+
+                    conditionalPanel(
+                      condition = "output.show_oauth_buttons",
+                      h4("🔐 Autorización OAuth"),
+
+                      div(class = "alert alert-info",
+                          HTML("📋 <strong>Importante:</strong> Asegúrate de que tu app de Dropbox tenga configurados estos Redirect URIs:<br>
+                               • <code>http://localhost:1410/</code><br>
+                               • <code>http://localhost:1411/</code><br>
+                               • <code>http://localhost:1412/</code><br>
+                               • <code>http://localhost:1413/</code><br>
+                               • <code>http://localhost:1414/</code><br>
+                               <br>Ve a <a href='https://www.dropbox.com/developers/apps' target='_blank'>tu app en Dropbox</a> → Settings → OAuth2 redirect URIs")
+                      ),
+
+                      p("Autoriza el acceso a tu cuenta de Dropbox:"),
+
+                      fluidRow(
+                        column(3,
+                               actionButton("start_oauth", "🚀 Iniciar Autorización OAuth",
+                                            class = "btn-success", style = "width: 100%;")
+                        ),
+                        column(3,
+                               actionButton("test_auth_url", "🔗 Probar URL de Autorización",
+                                            class = "btn-warning", style = "width: 100%;")
+                        ),
+                        column(3,
+                               actionButton("manual_auth", "✍️ Autorización Manual",
+                                            class = "btn-secondary", style = "width: 100%;")
+                        ),
+                        column(3,
+                               actionButton("refresh_token", "🔄 Refrescar Token",
+                                            class = "btn-info", style = "width: 100%;")
+                        )
+                      ),
+                      br()
+                    ),
+
+                    verbatimTextOutput("oauth_operation_status")
+                )
+              ),
+
+              fluidRow(
+                box(title = "📊 Estado de Tokens", width = 12,
+                    DTOutput("token_status_table")
+                )
+              )
       )
     ),
 
@@ -1370,7 +1376,7 @@ server <- function(input, output, session) {
   files_refresh <- reactiveVal(0)
   oauth_configured <- reactiveVal(TRUE)  # Siempre configurado con credenciales integradas
   tokens_valid <- reactiveVal(FALSE)
-  developer_mode <- reactiveVal(FALSE)  # Modo desarrollador
+  developer_mode <- reactiveVal(FALSE)  # Modo desarrollador DESACTIVADO por defecto
 
   progress_map <- list(
     "Introducción" = 10, "Método" = 30, "Resultados" = 50,
