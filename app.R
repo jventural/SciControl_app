@@ -976,7 +976,24 @@ ui <- dashboardPage(
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
-      menuItem("⚙️ Configuración", tabName = "config", icon = icon("cog")),
+      # Pestaña de configuración - Solo visible en modo desarrollador
+      conditionalPanel(
+        condition = "output.developer_mode == true",
+        menuItem("⚙️ Configuración", tabName = "config", icon = icon("cog"))
+      ),
+      # Indicador de modo desarrollador y botón de salida
+      conditionalPanel(
+        condition = "output.developer_mode == true",
+        div(style = "padding: 10px; margin: 5px; background-color: #d4edda; border-radius: 5px; border-left: 4px solid #28a745;",
+            div(style = "color: #155724; font-weight: bold; font-size: 12px; text-align: center;",
+                "🔓 MODO DESARROLLADOR",
+                br(),
+                actionButton("exit_developer_mode", "Salir",
+                             class = "btn-sm btn-outline-secondary",
+                             style = "margin-top: 5px; font-size: 10px;")
+            )
+        )
+      ),
       menuItem("Agregar Proyecto", tabName = "agregar", icon = icon("plus")),
       menuItem("Ver Proyectos", tabName = "ver", icon = icon("table")),
       menuItem("Análisis de Tiempos", tabName = "dias", icon = icon("clock")),
@@ -1014,6 +1031,20 @@ ui <- dashboardPage(
     #app-title:hover {
       opacity: 0.8;
     }
+
+    /* Estilos para el indicador de modo desarrollador */
+    .developer-indicator {
+      background-color: #28a745 !important;
+      border-radius: 3px;
+      padding: 2px 5px;
+      animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+      0% { background-color: #28a745; }
+      50% { background-color: #34ce57; }
+      100% { background-color: #28a745; }
+    }
   ")),
 
       # JavaScript para manejar doble clic en el título
@@ -1026,8 +1057,22 @@ ui <- dashboardPage(
       "))
     ),
     tabItems(
-      # Tab: Configuración Dropbox
+      # Tab: Configuración Dropbox (Solo visible en modo desarrollador)
       tabItem(tabName = "config",
+              # Indicador de modo desarrollador
+              fluidRow(
+                box(title = "🔓 Modo Desarrollador Activo",
+                    width = 12, status = "success", solidHeader = TRUE,
+                    div(class = "alert alert-success",
+                        HTML("✅ <strong>Acceso de desarrollador activado.</strong> Tienes acceso completo a las configuraciones OAuth de Dropbox.")),
+                    div(style = "text-align: center; margin: 10px 0;",
+                        actionButton("exit_developer_mode_main", "🔒 Salir del Modo Desarrollador",
+                                     class = "btn-warning", style = "margin-right: 10px;"),
+                        span("(Esto ocultará esta pestaña)", style = "font-size: 12px; color: #666;")
+                    )
+                )
+              ),
+
               fluidRow(
                 box(title = "🔧 Configuración de Dropbox OAuth 2.0",
                     width = 12, status = "primary",
@@ -1385,11 +1430,33 @@ server <- function(input, output, session) {
     }
   })
 
-  # Salir del modo desarrollador
+  # Salir del modo desarrollador (botón del sidebar)
   observeEvent(input$exit_developer_mode, {
     developer_mode(FALSE)
     developer_authenticated <<- FALSE
     showNotification("🔒 Modo desarrollador desactivado", type = "message", duration = 3)
+  })
+
+  # Salir del modo desarrollador (botón principal de la pestaña)
+  observeEvent(input$exit_developer_mode_main, {
+    showModal(modalDialog(
+      title = "🔒 Confirmar Salida del Modo Desarrollador",
+      HTML("¿Está seguro de que desea salir del modo desarrollador?<br><br>
+           <strong>Esto ocultará la pestaña de Configuración</strong> y necesitará volver a autenticarse
+           para acceder a las configuraciones OAuth."),
+      footer = tagList(
+        modalButton("Cancelar"),
+        actionButton("confirm_exit_developer", "Sí, Salir", class = "btn-warning")
+      )
+    ))
+  })
+
+  # Confirmar salida del modo desarrollador
+  observeEvent(input$confirm_exit_developer, {
+    removeModal()
+    developer_mode(FALSE)
+    developer_authenticated <<- FALSE
+    showNotification("🔒 Modo desarrollador desactivado. Pestaña de Configuración oculta.", type = "message", duration = 4)
   })
 
   # Reset configuración OAuth (solo desarrolladores)
@@ -1682,10 +1749,17 @@ server <- function(input, output, session) {
 
   # Indicador de estado en el header
   output$storage_status_display <- renderText({
-    if (tokens_valid()) {
+    status_text <- if (tokens_valid()) {
       "🟢 Dropbox OAuth Activo"
     } else {
       "🟡 Dropbox OAuth Inactivo"
+    }
+
+    # Agregar indicador de modo desarrollador
+    if (developer_mode()) {
+      paste(status_text, "| 🔓 DEV")
+    } else {
+      status_text
     }
   })
 
@@ -3127,15 +3201,27 @@ server <- function(input, output, session) {
 initialize_dropbox_oauth()
 
 # ============================================================================
-# MODO DESARROLLADOR - INSTRUCCIONES
+# MODO DESARROLLADOR - INSTRUCCIONES COMPLETAS
 # ============================================================================
-# Para acceder al modo desarrollador:
+#
+# ACTIVAR MODO DESARROLLADOR:
 # 1. Hacer doble clic en "SciControl" en el header
 # 2. Ingresar contraseña: "scicontrol2025"
 # 3. Acceder a las configuraciones OAuth avanzadas
 #
-# Para cambiar la contraseña de desarrollador:
-# - Modificar la variable DEVELOPER_PASSWORD al inicio del código
+# SALIR DEL MODO DESARROLLADOR:
+# 1. Usar el botón "Salir" en el sidebar (método rápido)
+# 2. Usar el botón "🔒 Salir del Modo Desarrollador" en la pestaña Configuración (método seguro con confirmación)
+# 3. La pestaña de Configuración se ocultará automáticamente
+#
+# INDICADORES VISUALES:
+# - Header: Muestra "🔓 DEV" cuando está activo
+# - Sidebar: Muestra indicador verde "🔓 MODO DESARROLLADOR" con botón de salida
+# - Pestaña Configuración: Solo visible en modo desarrollador
+#
+# PERSONALIZACIÓN:
+# - Para cambiar la contraseña de desarrollador: Modificar DEVELOPER_PASSWORD
+# - Para cambiar la duración de notificaciones: Modificar el parámetro duration
 # ============================================================================
 
 # Ejecutar la aplicación Shiny
