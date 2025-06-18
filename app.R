@@ -965,7 +965,7 @@ ui <- dashboardPage(
     title = div(id = "app-title",
                 "SciControl",
                 style = "cursor: pointer; user-select: none;",
-                title = "Doble clic para opciones de desarrollador"),
+                title = "Doble clic para acceso de desarrollador"),
     tags$li(class = "dropdown", style = "padding: 8px;",
             div(id = "storage_status_indicator",
                 textOutput("storage_status_display"),
@@ -1284,6 +1284,9 @@ ui <- dashboardPage(
       )
     ),
 
+    # Usar shinyjs
+    useShinyjs(),
+
     # Modal de autenticación de desarrollador (oculto inicialmente)
     div(id = "developer-auth-modal", class = "modal fade", role = "dialog",
         div(class = "modal-dialog",
@@ -1417,95 +1420,6 @@ server <- function(input, output, session) {
 
     output$oauth_operation_status <- renderText("✅ Configuración OAuth reseteada. Reautoriza la aplicación.")
     showNotification("OAuth configuration reset", type = "warning")
-  })
-
-  # ========================================================================
-  # OUTPUTS PARA USUARIOS NORMALES (SIN MODO DESARROLLADOR)
-  # ========================================================================
-
-  output$system_status_info <- renderUI({
-    data <- project_data()
-
-    div(
-      tags$ul(
-        tags$li(paste("📊 Proyectos en el sistema:", nrow(data))),
-        tags$li(paste("☁️ Estado de sincronización:", if(tokens_valid()) "✅ Activa" else "⚠️ Inactiva")),
-        tags$li(paste("💾 Última actualización:", format(Sys.time(), "%Y-%m-%d %H:%M"))),
-        tags$li(paste("🔄 Auto-guardado:", if(tokens_valid()) "✅ Habilitado" else "❌ Deshabilitado"))
-      ),
-
-      if (!tokens_valid()) {
-        div(class = "alert alert-warning",
-            "⚠️ La sincronización automática no está disponible. Contacta al administrador si persisten los problemas."
-        )
-      } else {
-        div(class = "alert alert-success",
-            "✅ Sistema funcionando correctamente. Tus datos se sincronizan automáticamente."
-        )
-      }
-    )
-  })
-
-  # Botones de usuario normal (versiones simplificadas)
-  observeEvent(input$user_sync_data, {
-    if (!tokens_valid()) {
-      output$user_operation_status <- renderText("❌ Sincronización no disponible. Contacta al administrador.")
-      return()
-    }
-
-    output$user_operation_status <- renderText("🔄 Sincronizando datos...")
-
-    data <- project_data()
-    if (nrow(data) > 0) {
-      save_result <- save_data_to_dropbox(data)
-      if (save_result$success) {
-        output$user_operation_status <- renderText("✅ Datos sincronizados correctamente.")
-      } else {
-        output$user_operation_status <- renderText("⚠️ Error en la sincronización. Contacta al administrador.")
-      }
-    } else {
-      output$user_operation_status <- renderText("ℹ️ No hay datos para sincronizar.")
-    }
-  })
-
-  observeEvent(input$user_backup_data, {
-    if (!tokens_valid()) {
-      output$user_operation_status <- renderText("❌ Backup no disponible. Contacta al administrador.")
-      return()
-    }
-
-    output$user_operation_status <- renderText("🔄 Creando backup...")
-
-    data <- project_data()
-    if (nrow(data) > 0) {
-      timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-      temp_file <- tempfile(fileext = ".xlsx")
-      writexl::write_xlsx(data, temp_file)
-
-      backup_result <- upload_to_dropbox(temp_file,
-                                         paste0("user_backup_", timestamp, ".xlsx"),
-                                         "scicontrol/user_backups")
-      unlink(temp_file)
-
-      if (backup_result$success) {
-        output$user_operation_status <- renderText("✅ Backup creado correctamente.")
-      } else {
-        output$user_operation_status <- renderText("⚠️ Error al crear backup. Contacta al administrador.")
-      }
-    } else {
-      output$user_operation_status <- renderText("ℹ️ No hay datos para respaldar.")
-    }
-  })
-
-  observeEvent(input$user_export_data, {
-    data <- project_data()
-    if (nrow(data) == 0) {
-      output$user_operation_status <- renderText("ℹ️ No hay datos para exportar.")
-      return()
-    }
-
-    output$user_operation_status <- renderText("📥 Para exportar datos, usa la pestaña 'Descargar Datos'.")
-    showNotification("Ve a la pestaña 'Descargar Datos' para exportar", type = "message")
   })
 
   # ========================================================================
