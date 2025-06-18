@@ -1,3 +1,7 @@
+# APLICACIÓN SHINY SCICONTROL COMPLETA CON OAUTH 2.0
+# ===================================================
+
+# Cargar librerías necesarias
 library(shiny)
 library(shinydashboard)
 library(DT)
@@ -13,161 +17,461 @@ library(base64enc)
 library(ggplot2)
 library(plotly)
 library(dplyr)
+library(httpuv)
+
+# Configurar zona horaria
+Sys.setenv(TZ = "America/Lima")
+
+# ============================================================================
+# CONFIGURACIÓN DE MODO DESARROLLADOR
+# ============================================================================
+
+# Contraseña para acceso de desarrollador (puedes cambiarla)
+DEVELOPER_PASSWORD <- "scicontrol2025"
+
+# Variable para controlar el acceso de desarrollador (se reinicia con la app)
+developer_authenticated <- FALSE
 
 # Operador auxiliar
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
-# CONFIGURACIÓN DE DROPBOX
-DROPBOX_ACCESS_TOKEN <- "sl.u.AFwBk_Na1gvRsZ2f3RVu6bDXlAxqPpsPhhrMTiICXiglCcrnBAQngHDg7xR-t5Uexvi1m4kC9j_W91yE8e1HmmHNBJyA-IYFJ5doI1uGRBj25yzvTqFLyGlTQ38vRZOrkiXByoVTXsbnyHIeaoKrfZWdejWDtvhfV4rzF3Ux597CaCv0nW2lRa5il_qkV-dMUpzpvo6UFnatq7jIH8kLA-JAfRzscRKkgg2awZWWlA4QlTfFjVEeRw_yEMS7a0k4pzChURb0R-qCHR_IuVZUGjjBqhmAiLs9keUjJEofVDcqeS7hJQhBgFnnBPgfapU5Uyxnr4ChNH0TsUM9P7G4XYTOZa0BY0Qpd_swvKmqz3me3JsoSEqT_HJHUE5F1vRnNaiBWK6z-A9QtW2F45CNpi7qGb30LPMvtwhQ21RlhY5wfZ8zLQ4rpsc4Tm398c9mFPZKXcmHMg9o4AdhbgZil05IDbQDAeigDPw-V6YtoHqGRSIG4EAjNIdRn3qs3hvTeUAzTAp3Abk40GZWRz8X51A22VO42E2XoNBA-hizUhYkFtVQHiMNizQ1XuYV6TTDHKFsUt1GGKztnHLEewSYIx95RR4SjBl4puTtn9U8E51j3PcHh_mm7vKa0-rDNI1linX-u62fZ5yGgvjz0nAh3zgSAe6KhnxH5hnuPuAZEwIjlqGK0dMe2RoH4QCOQvLbtIi1mI7WQOZG6fWrfP2faS5h5zTHYzLoaO9uJ0VeznuQzkmpK-QHaD35UKQGg_25mhGJIIAuhL9NUd-v5vhENstSgVQNfsWPpF1v2d5mrhS0u84hh8AD5nc-b9zXlFPmX9o73is5q42tbbHm8Gyf2TaXvosbvmcOxAXVkX8oZPPXeGd1K1uXlWdxdJhr8pR4OmGGmtYBhe4p0XWhgRe4QcH-WLdJfaUt64dYiB9rahSg04QRLUmM3dTOxX-ovH_YMSMie9Syk0q-Nbo3ul5NnmRH-aAJTt3RMEv8LEDvkTyMwNtXO7SkEBI8aofrt_16zW7duVIAm-2j8JRZ9vPmacUAujTIglxVaPJLydtgrm9yBEduiALJEE3_VwFOGft6a_27NWGjM5MuNb3Gz_xy3UTq79GMfmxR9wWoh_UJIT-GG3KryEVIEFGtk_mdb9pfU7MSBy0xThYRAvlNimABYOplezm9Q1wS0UhXEObp2Y7UEJ5cLrIXVxzYplAbgT6oCMx_Z1WzKu8VJo5bR5M5DygDXqtPAcZecQHkrb0aSnzeWwPTV2YbLGx2N6s-rt_Rp6FSv6QaXR3E4d_PTR1oSBiVvyKmZ3tiZuxNtCtQpC1NsIWxQBmVrFVV0eqBxcAfHC8"
+# ============================================================================
+# CONFIGURACIÓN OAUTH 2.0 PARA DROPBOX
+# ============================================================================
 
-# Función para verificar configuración de Dropbox
-check_dropbox_config <- function() {
-  if (DROPBOX_ACCESS_TOKEN == "tu_dropbox_access_token_aqui" ||
-      DROPBOX_ACCESS_TOKEN == "") {
-    return(FALSE)
-  }
-  return(TRUE)
+# Configuración de la aplicación Dropbox (tus credenciales reales)
+DROPBOX_APP_KEY <- "u345780r1sjewxw"
+DROPBOX_APP_SECRET <- "u2l2isg4nophe34"  # Corregido: era "j21215g4nophe34"
+DROPBOX_REDIRECT_URI <- "http://localhost:1410/"
+
+# Variables globales para tokens
+DROPBOX_ACCESS_TOKEN <- ""
+DROPBOX_REFRESH_TOKEN <- ""
+TOKEN_EXPIRY_TIME <- NULL
+
+# Función para generar URL de autorización
+generate_auth_url <- function() {
+  base_url <- "https://www.dropbox.com/oauth2/authorize"
+
+  # Codificar cada parámetro individualmente
+  client_id_encoded <- URLencode(DROPBOX_APP_KEY, reserved = TRUE)
+  redirect_uri_encoded <- URLencode(DROPBOX_REDIRECT_URI, reserved = TRUE)
+
+  # Construir URL manualmente para evitar problemas de encoding
+  auth_url <- paste0(
+    base_url,
+    "?client_id=", client_id_encoded,
+    "&response_type=code",
+    "&redirect_uri=", redirect_uri_encoded,
+    "&token_access_type=offline"
+  )
+
+  cat("🔗 URL de autorización generada:", auth_url, "\n")
+  return(auth_url)
 }
 
-# FUNCIONES MEJORADAS PARA SANITIZACIÓN Y VALIDACIÓN DE PATHS
+# Función para iniciar servidor temporal y capturar código
+capture_authorization_code <- function() {
+  auth_code <- NULL
 
-# Función mejorada para sanitizar nombres de proyecto
+  app <- list(
+    call = function(req) {
+      cat("📥 Request recibida en servidor local:\n")
+      cat("  - Path:", req$PATH_INFO, "\n")
+      cat("  - Query:", req$QUERY_STRING, "\n")
+      cat("  - Method:", req$REQUEST_METHOD, "\n")
+
+      query_string <- req$QUERY_STRING
+      if (!is.null(query_string) && grepl("code=", query_string)) {
+        params <- strsplit(query_string, "&")[[1]]
+        code_param <- params[grep("code=", params)]
+        if (length(code_param) > 0) {
+          auth_code <<- gsub("code=", "", code_param[1])
+          cat("✅ Código de autorización capturado:", substr(auth_code, 1, 20), "...\n")
+        }
+      }
+
+      if (!is.null(auth_code)) {
+        response_body <- "<html><head><title>Autorización Exitosa</title></head><body style='font-family: Arial, sans-serif; text-align: center; margin: 50px;'><h1 style='color: green;'>¡Autorización Exitosa!</h1><p>El código ha sido capturado correctamente.</p><p><strong>Puedes cerrar esta ventana y volver a tu aplicación Shiny.</strong></p><script>setTimeout(function(){window.close();}, 3000);</script></body></html>"
+        status <- 200L
+      } else {
+        response_body <- "<html><head><title>Esperando Autorización</title></head><body style='font-family: Arial, sans-serif; text-align: center; margin: 50px;'><h1 style='color: orange;'>Esperando Autorización...</h1><p>Si ves esta página, el servidor está funcionando.</p><p>Regresa a Dropbox y completa la autorización.</p></body></html>"
+        status <- 200L
+      }
+
+      list(
+        status = status,
+        headers = list(
+          'Content-Type' = 'text/html',
+          'Access-Control-Allow-Origin' = '*',
+          'Access-Control-Allow-Methods' = 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers' = 'Content-Type'
+        ),
+        body = response_body
+      )
+    }
+  )
+
+  # Intentar varios puertos si 1410 está ocupado
+  ports_to_try <- c(1410, 1411, 1412, 1413, 1414)
+  server <- NULL
+  port_used <- NULL
+
+  for (port in ports_to_try) {
+    tryCatch({
+      server <- startServer("127.0.0.1", port, app)
+      port_used <- port
+      cat("✅ Servidor HTTP iniciado en puerto:", port, "\n")
+      cat("🌐 Servidor accesible en: http://localhost:", port, "/\n")
+      break
+    }, error = function(e) {
+      cat("⚠️ Puerto", port, "ocupado:", e$message, "\n")
+    })
+  }
+
+  if (is.null(server)) {
+    stop("❌ No se pudo iniciar servidor en ningún puerto (1410-1414)")
+  }
+
+  on.exit(stopServer(server), add = TRUE)
+
+  # Actualizar redirect URI si usamos un puerto diferente
+  if (port_used != 1410) {
+    DROPBOX_REDIRECT_URI <<- paste0("http://localhost:", port_used, "/")
+    cat("🔄 Redirect URI actualizado a:", DROPBOX_REDIRECT_URI, "\n")
+  }
+
+  auth_url <- generate_auth_url()
+  browseURL(auth_url)
+
+  cat("\n=== INSTRUCCIONES PARA EL USUARIO ===\n")
+  cat("🌐 Se abrió el navegador con la página de autorización de Dropbox.\n")
+  cat("📋 Pasos a seguir:\n")
+  cat("  1. En la página de Dropbox, haz clic en 'Permitir'\n")
+  cat("  2. Deberías ser redirigido a: http://localhost:", port_used, "/\n")
+  cat("  3. Si no funciona automáticamente, mira la URL del navegador después del clic\n")
+  cat("  4. Busca '?code=' en la URL y copia el código que aparece después\n")
+  cat("=====================================\n\n")
+  cat("⏳ Esperando código de autorización... (máximo 5 minutos)\n")
+
+  start_time <- Sys.time()
+  timeout <- 300
+
+  while (is.null(auth_code) && as.numeric(difftime(Sys.time(), start_time, units = "secs")) < timeout) {
+    Sys.sleep(1)
+
+    # Mostrar progreso cada 30 segundos
+    elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+    if (elapsed %% 30 == 0) {
+      cat("⏳ Esperando... (", round(elapsed), " segundos transcurridos)\n")
+    }
+  }
+
+  if (is.null(auth_code)) {
+    cat("\n❌ TIMEOUT: No se recibió el código automáticamente.\n")
+    cat("🔧 SOLUCIÓN MANUAL:\n")
+    cat("1. Revisa si en tu navegador hay una URL que empiece con:\n")
+    cat("   http://localhost:", port_used, "/?code=\n")
+    cat("2. Si la hay, copia todo el texto que aparece después de 'code=' y antes de '&' (si lo hay)\n")
+    cat("3. Usa la función manual que agregaré a la interfaz\n\n")
+
+    stop("Manual intervention required - see instructions above")
+  }
+
+  return(auth_code)
+}
+
+# Función para intercambiar código por tokens
+exchange_code_for_tokens <- function(auth_code) {
+  cat("🔄 Intercambiando código por tokens...\n")
+  cat("📝 Código recibido:", substr(auth_code, 1, 20), "...\n")
+
+  tryCatch({
+    # Preparar datos para el POST
+    post_data <- list(
+      code = auth_code,
+      grant_type = "authorization_code",
+      client_id = DROPBOX_APP_KEY,
+      client_secret = DROPBOX_APP_SECRET,
+      redirect_uri = DROPBOX_REDIRECT_URI
+    )
+
+    cat("📤 Enviando request a Dropbox...\n")
+    cat("🔧 Client ID:", DROPBOX_APP_KEY, "\n")
+    cat("🔧 Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
+
+    response <- httr::POST(
+      url = "https://api.dropboxapi.com/oauth2/token",
+      body = post_data,
+      encode = "form",
+      httr::timeout(30)  # 30 segundos timeout
+    )
+
+    cat("📥 Response status:", response$status_code, "\n")
+
+    if (response$status_code == 200) {
+      token_data <- httr::content(response, as = "parsed")
+
+      cat("✅ Tokens obtenidos exitosamente\n")
+      cat("🔑 Access token:", substr(token_data$access_token, 1, 20), "...\n")
+      cat("🔄 Refresh token:", substr(token_data$refresh_token, 1, 20), "...\n")
+      cat("⏰ Expira en:", token_data$expires_in, "segundos\n")
+
+      # Guardar tokens globalmente
+      DROPBOX_ACCESS_TOKEN <<- token_data$access_token
+      DROPBOX_REFRESH_TOKEN <<- token_data$refresh_token
+      TOKEN_EXPIRY_TIME <<- Sys.time() + as.difftime(token_data$expires_in, units = "secs")
+
+      # Guardar tokens en archivo para persistencia
+      tokens <- list(
+        access_token = DROPBOX_ACCESS_TOKEN,
+        refresh_token = DROPBOX_REFRESH_TOKEN,
+        expires_at = as.character(TOKEN_EXPIRY_TIME)
+      )
+
+      saveRDS(tokens, "dropbox_tokens.rds")
+
+      cat("💾 Tokens guardados en archivo\n")
+      cat("✅ OAuth completado exitosamente\n")
+
+      return(TRUE)
+    } else {
+      error_content <- httr::content(response, "text")
+      cat("❌ Error HTTP", response$status_code, "\n")
+      cat("📄 Respuesta:", error_content, "\n")
+
+      # Diagnóstico de errores comunes
+      if (response$status_code == 400) {
+        if (grepl("invalid_grant", error_content)) {
+          cat("🔍 Diagnóstico: El código de autorización puede haber expirado o ya fue usado\n")
+          cat("💡 Solución: Intenta obtener un nuevo código de autorización\n")
+        } else if (grepl("invalid_client", error_content)) {
+          cat("🔍 Diagnóstico: App Key o App Secret incorrectos\n")
+          cat("💡 Solución: Verifica las credenciales en la configuración de Dropbox\n")
+        } else if (grepl("redirect_uri_mismatch", error_content)) {
+          cat("🔍 Diagnóstico: Redirect URI no coincide con la configuración de Dropbox\n")
+          cat("💡 Solución: Verifica que", DROPBOX_REDIRECT_URI, "esté configurado en tu app\n")
+        }
+      }
+
+      stop("Error al obtener tokens: ", error_content)
+    }
+  }, error = function(e) {
+    cat("❌ Error en intercambio de tokens:", e$message, "\n")
+    stop("Error en intercambio de tokens: ", e$message)
+  })
+}
+
+# Función para cargar tokens guardados
+load_saved_tokens <- function() {
+  if (file.exists("dropbox_tokens.rds")) {
+    tryCatch({
+      tokens <- readRDS("dropbox_tokens.rds")
+      DROPBOX_ACCESS_TOKEN <<- tokens$access_token
+      DROPBOX_REFRESH_TOKEN <<- tokens$refresh_token
+      TOKEN_EXPIRY_TIME <<- as.POSIXct(tokens$expires_at)
+
+      cat("Tokens cargados desde archivo.\n")
+      return(TRUE)
+    }, error = function(e) {
+      cat("Error al cargar tokens:", e$message, "\n")
+      return(FALSE)
+    })
+  }
+  return(FALSE)
+}
+
+# Función para refrescar access token
+refresh_dropbox_access_token <- function() {
+  if (DROPBOX_REFRESH_TOKEN == "") {
+    cat("No hay refresh token disponible.\n")
+    return(FALSE)
+  }
+
+  tryCatch({
+    response <- httr::POST(
+      url = "https://api.dropboxapi.com/oauth2/token",
+      body = list(
+        grant_type = "refresh_token",
+        refresh_token = DROPBOX_REFRESH_TOKEN,
+        client_id = DROPBOX_APP_KEY,
+        client_secret = DROPBOX_APP_SECRET
+      ),
+      encode = "form"
+    )
+
+    if (response$status_code == 200) {
+      token_data <- httr::content(response, as = "parsed")
+      DROPBOX_ACCESS_TOKEN <<- token_data$access_token
+      TOKEN_EXPIRY_TIME <<- Sys.time() + as.difftime(token_data$expires_in, units = "secs")
+
+      tokens <- list(
+        access_token = DROPBOX_ACCESS_TOKEN,
+        refresh_token = DROPBOX_REFRESH_TOKEN,
+        expires_at = as.character(TOKEN_EXPIRY_TIME)
+      )
+      saveRDS(tokens, "dropbox_tokens.rds")
+
+      cat("Access token refrescado exitosamente.\n")
+      return(TRUE)
+    } else {
+      error_content <- httr::content(response, "text")
+      cat("Error al refrescar token:", error_content, "\n")
+      return(FALSE)
+    }
+  }, error = function(e) {
+    cat("Error al refrescar token:", e$message, "\n")
+    return(FALSE)
+  })
+}
+
+# Función principal para obtener token válido
+get_dropbox_token <- function() {
+  if (DROPBOX_ACCESS_TOKEN == "") {
+    load_saved_tokens()
+  }
+
+  if (!is.null(TOKEN_EXPIRY_TIME) &&
+      TOKEN_EXPIRY_TIME - Sys.time() < as.difftime(10, units = "mins")) {
+    cat("Token próximo a expirar, refrescando...\n")
+    refresh_dropbox_access_token()
+  }
+
+  return(DROPBOX_ACCESS_TOKEN)
+}
+
+# Función para verificar configuración OAuth
+check_dropbox_config <- function() {
+  config_ok <- DROPBOX_APP_KEY != "" && DROPBOX_APP_SECRET != ""
+  if (!config_ok) return(FALSE)
+
+  token <- get_dropbox_token()
+  return(token != "" && !is.null(token))
+}
+
+# Función para inicializar OAuth
+initialize_dropbox_oauth <- function() {
+  cat("Inicializando OAuth de Dropbox...\n")
+
+  if (load_saved_tokens()) {
+    cat("✅ Tokens existentes cargados.\n")
+
+    if (is.null(TOKEN_EXPIRY_TIME) || TOKEN_EXPIRY_TIME > Sys.time()) {
+      cat("✅ Token válido hasta:", format(TOKEN_EXPIRY_TIME), "\n")
+      return(TRUE)
+    } else {
+      cat("⚠️ Token expirado, intentando refrescar...\n")
+      if (refresh_dropbox_access_token()) {
+        cat("✅ Token refrescado exitosamente.\n")
+        return(TRUE)
+      }
+    }
+  }
+
+  cat("❌ No hay tokens válidos. Ejecutar autorización OAuth.\n")
+  return(FALSE)
+}
+
+# Función para iniciar flujo OAuth completo
+start_oauth_flow <- function() {
+  cat("=== INICIANDO FLUJO OAUTH DE DROPBOX ===\n")
+  cat("🔧 App Key:", DROPBOX_APP_KEY, "\n")
+  cat("🔧 Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
+
+  # Verificar configuración
+  if (DROPBOX_APP_KEY == "" || DROPBOX_APP_SECRET == "") {
+    cat("❌ Error: App Key o App Secret vacíos\n")
+    return(FALSE)
+  }
+
+  if (nchar(DROPBOX_APP_KEY) < 10 || nchar(DROPBOX_APP_SECRET) < 10) {
+    cat("❌ Error: App Key o App Secret muy cortos\n")
+    return(FALSE)
+  }
+
+  tryCatch({
+    # Paso 1: Capturar código de autorización
+    cat("📱 Abriendo navegador para autorización...\n")
+    auth_code <- capture_authorization_code()
+    cat("✅ Código de autorización obtenido:", substr(auth_code, 1, 10), "...\n")
+
+    # Paso 2: Intercambiar código por tokens
+    if (exchange_code_for_tokens(auth_code)) {
+      cat("✅ Flujo OAuth completado exitosamente.\n")
+      return(TRUE)
+    }
+  }, error = function(e) {
+    cat("❌ Error en flujo OAuth:", e$message, "\n")
+
+    # Si es un timeout, sugerir método manual
+    if (grepl("Manual intervention required", e$message)) {
+      cat("\n🔧 SUGERENCIA: Usa el botón 'Autorización Manual' en la interfaz.\n")
+      cat("📋 Esto te permitirá copiar/pegar el código manualmente.\n")
+    }
+
+    return(FALSE)
+  })
+
+  return(FALSE)
+}
+
+# ============================================================================
+# FUNCIONES DE SANITIZACIÓN Y VALIDACIÓN
+# ============================================================================
+
 sanitize_project_name <- function(project_name) {
   if (is.null(project_name) || is.na(project_name) || project_name == "") {
     return("proyecto_sin_nombre")
   }
 
-  # Convertir a string y limpiar caracteres problemáticos
   name <- as.character(project_name)
-
-  # Remover acentos y caracteres especiales
   name <- iconv(name, to = "ASCII//TRANSLIT")
 
-  # Reemplazar caracteres no válidos para Dropbox (uno por uno para evitar errores regex)
-  name <- gsub("<", "_", name)
-  name <- gsub(">", "_", name)
-  name <- gsub(":", "_", name)
-  name <- gsub("\"", "_", name)
-  name <- gsub("\\|", "_", name)
-  name <- gsub("\\?", "_", name)
-  name <- gsub("\\*", "_", name)
-  name <- gsub("\\\\", "_", name)
-  name <- gsub("/", "_", name)
-  name <- gsub("\\[", "_", name)
-  name <- gsub("\\]", "_", name)
-  name <- gsub("\\{", "_", name)
-  name <- gsub("\\}", "_", name)
-  name <- gsub("\\(", "_", name)
-  name <- gsub("\\)", "_", name)
-  name <- gsub("@", "_", name)
-  name <- gsub("#", "_", name)
-  name <- gsub("\\$", "_", name)
-  name <- gsub("%", "_", name)
-  name <- gsub("\\^", "_", name)
-  name <- gsub("&", "_", name)
-  name <- gsub("\\+", "_", name)
-  name <- gsub("=", "_", name)
-  name <- gsub(";", "_", name)
-  name <- gsub("'", "_", name)
-  name <- gsub(",", "_", name)
-  name <- gsub("~", "_", name)
-  name <- gsub("`", "_", name)
-
-  # Reemplazar espacios y puntos por guiones bajos
+  # Reemplazar caracteres problemáticos
+  name <- gsub("[<>:\"|\\?\\*\\\\/<>\\[\\]\\{\\}\\(\\)@#\\$%\\^&\\+=;',~`]", "_", name)
   name <- gsub("\\s", "_", name)
   name <- gsub("\\.", "_", name)
-
-  # Remover caracteres de control
   name <- gsub("[[:cntrl:]]", "", name)
-
-  # Mantener solo caracteres alfanuméricos, guiones y guiones bajos
   name <- gsub("[^a-zA-Z0-9_-]", "_", name)
-
-  # Reemplazar múltiples guiones bajos consecutivos por uno solo
   name <- gsub("_{2,}", "_", name)
-
-  # Remover guiones bajos al inicio y final
   name <- gsub("^_+|_+$", "", name)
 
-  # Si el nombre queda vacío, usar un nombre por defecto
   if (name == "" || nchar(name) == 0) {
     name <- "proyecto_sin_nombre"
   }
 
-  # Limitar longitud (Dropbox tiene límites de path)
   if (nchar(name) > 30) {
     name <- substr(name, 1, 30)
-    name <- gsub("_+$", "", name) # Remover guiones bajos finales después del corte
+    name <- gsub("_+$", "", name)
   }
 
   return(name)
 }
 
-# Función para sanitizar nombres de archivo
 sanitize_file_name <- function(file_name) {
   if (is.null(file_name) || is.na(file_name) || file_name == "") {
     return("archivo_sin_nombre.txt")
   }
 
-  # Separar nombre y extensión
   file_parts <- tools::file_path_sans_ext(file_name)
   file_ext <- tools::file_ext(file_name)
 
-  # Sanitizar el nombre del archivo (sin extensión)
   clean_name <- iconv(file_parts, to = "ASCII//TRANSLIT")
-
-  # Reemplazar caracteres problemáticos uno por uno
-  clean_name <- gsub("<", "_", clean_name)
-  clean_name <- gsub(">", "_", clean_name)
-  clean_name <- gsub(":", "_", clean_name)
-  clean_name <- gsub("\"", "_", clean_name)
-  clean_name <- gsub("\\|", "_", clean_name)
-  clean_name <- gsub("\\?", "_", clean_name)
-  clean_name <- gsub("\\*", "_", clean_name)
-  clean_name <- gsub("\\\\", "_", clean_name)
-  clean_name <- gsub("/", "_", clean_name)
-  clean_name <- gsub("\\[", "_", clean_name)
-  clean_name <- gsub("\\]", "_", clean_name)
-  clean_name <- gsub("\\{", "_", clean_name)
-  clean_name <- gsub("\\}", "_", clean_name)
-  clean_name <- gsub("\\(", "_", clean_name)
-  clean_name <- gsub("\\)", "_", clean_name)
-  clean_name <- gsub("@", "_", clean_name)
-  clean_name <- gsub("#", "_", clean_name)
-  clean_name <- gsub("\\$", "_", clean_name)
-  clean_name <- gsub("%", "_", clean_name)
-  clean_name <- gsub("\\^", "_", clean_name)
-  clean_name <- gsub("&", "_", clean_name)
-  clean_name <- gsub("\\+", "_", clean_name)
-  clean_name <- gsub("=", "_", clean_name)
-  clean_name <- gsub(";", "_", clean_name)
-  clean_name <- gsub("'", "_", clean_name)
-  clean_name <- gsub(",", "_", clean_name)
-  clean_name <- gsub("~", "_", clean_name)
-  clean_name <- gsub("`", "_", clean_name)
-
-  # Reemplazar espacios
+  clean_name <- gsub("[<>:\"|\\?\\*\\\\/<>\\[\\]\\{\\}\\(\\)@#\\$%\\^&\\+=;',~`]", "_", clean_name)
   clean_name <- gsub("\\s", "_", clean_name)
-
-  # Mantener solo caracteres seguros
   clean_name <- gsub("[^a-zA-Z0-9_.-]", "_", clean_name)
-
-  # Reemplazar múltiples guiones bajos
   clean_name <- gsub("_{2,}", "_", clean_name)
   clean_name <- gsub("^_+|_+$", "", clean_name)
 
-  # Si el nombre queda vacío, usar nombre por defecto
   if (clean_name == "" || nchar(clean_name) == 0) {
     clean_name <- "archivo"
   }
 
-  # Limitar longitud del nombre
   if (nchar(clean_name) > 50) {
     clean_name <- substr(clean_name, 1, 50)
     clean_name <- gsub("_+$", "", clean_name)
   }
 
-  # Sanitizar extensión
   if (file_ext != "") {
     file_ext <- gsub("[^a-zA-Z0-9]", "", file_ext)
     return(paste0(clean_name, ".", file_ext))
@@ -176,29 +480,23 @@ sanitize_file_name <- function(file_name) {
   }
 }
 
-# Función para validar y normalizar paths de Dropbox
 validate_dropbox_path <- function(path) {
   if (is.null(path) || is.na(path) || path == "") {
     return("/archivo_sin_nombre.txt")
   }
 
-  # Asegurar que comience con /
   if (!startsWith(path, "/")) {
     path <- paste0("/", path)
   }
 
-  # Reemplazar múltiples barras por una sola
   path <- gsub("/+", "/", path)
 
-  # Validar longitud total del path (Dropbox tiene límite de ~400 caracteres)
   if (nchar(path) > 400) {
     warning("Path muy largo, puede causar problemas en Dropbox")
-    # Truncar el path manteniendo la extensión
     path_parts <- strsplit(path, "/")[[1]]
     filename <- path_parts[length(path_parts)]
     folder_parts <- path_parts[-length(path_parts)]
 
-    # Reducir carpetas si es necesario
     while (nchar(paste(folder_parts, collapse = "/")) + nchar(filename) > 390 && length(folder_parts) > 1) {
       folder_parts <- folder_parts[-length(folder_parts)]
     }
@@ -209,10 +507,12 @@ validate_dropbox_path <- function(path) {
   return(path)
 }
 
-# FUNCIÓN MEJORADA PARA SUBIR ARCHIVO A DROPBOX
+# ============================================================================
+# FUNCIONES DE DROPBOX CON OAUTH
+# ============================================================================
+
 upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
   tryCatch({
-    # Validar entrada
     if (!file.exists(file_path)) {
       return(list(success = FALSE, error = "El archivo no existe"))
     }
@@ -221,10 +521,7 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
       file_name <- basename(file_path)
     }
 
-    # Sanitizar nombre del archivo
     clean_file_name <- sanitize_file_name(file_name)
-
-    # Agregar timestamp para evitar duplicados
     timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
     file_base <- tools::file_path_sans_ext(clean_file_name)
     file_ext <- tools::file_ext(clean_file_name)
@@ -235,28 +532,18 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
       unique_name <- paste0(file_base, "_", timestamp)
     }
 
-    # Construir path de Dropbox
     if (!is.null(folder_path) && folder_path != "") {
-      # Limpiar folder_path
-      folder_path <- gsub("^/+|/+$", "", folder_path) # Remover barras al inicio/final
-      folder_path <- gsub("/+", "/", folder_path) # Reemplazar múltiples barras
+      folder_path <- gsub("^/+|/+$", "", folder_path)
+      folder_path <- gsub("/+", "/", folder_path)
       dropbox_path <- paste0("/", folder_path, "/", unique_name)
     } else {
       dropbox_path <- paste0("/", unique_name)
     }
 
-    # Validar path final
     dropbox_path <- validate_dropbox_path(dropbox_path)
 
-    # Log para debugging
-    cat("Path original:", file_name, "\n")
-    cat("Path sanitizado:", unique_name, "\n")
-    cat("Path completo Dropbox:", dropbox_path, "\n")
-
-    # Leer archivo
     file_content <- readBin(file_path, "raw", file.info(file_path)$size)
 
-    # Preparar headers para Dropbox
     dropbox_api_arg <- list(
       path = dropbox_path,
       mode = "add",
@@ -264,31 +551,25 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
       mute = FALSE
     )
 
-    cat("API Arg JSON:", jsonlite::toJSON(dropbox_api_arg, auto_unbox = TRUE), "\n")
-
-    # Realizar upload
     response <- POST(
       url = "https://content.dropboxapi.com/2/files/upload",
       add_headers(
-        "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
+        "Authorization" = paste("Bearer", get_dropbox_token()),
         "Dropbox-API-Arg" = jsonlite::toJSON(dropbox_api_arg, auto_unbox = TRUE),
         "Content-Type" = "application/octet-stream"
       ),
       body = file_content
     )
 
-    cat("Response status:", response$status_code, "\n")
-
     if (response$status_code == 200) {
       result <- content(response, "parsed")
 
-      # Intentar crear enlace compartido
       share_url <- ""
       tryCatch({
         share_response <- POST(
           url = "https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings",
           add_headers(
-            "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
+            "Authorization" = paste("Bearer", get_dropbox_token()),
             "Content-Type" = "application/json"
           ),
           body = jsonlite::toJSON(list(
@@ -316,19 +597,16 @@ upload_to_dropbox <- function(file_path, file_name, folder_path = NULL) {
       ))
     } else {
       error_content <- content(response, "text")
-      cat("Error content:", error_content, "\n")
       return(list(
         success = FALSE,
         error = paste("Error HTTP:", response$status_code, "-", error_content)
       ))
     }
   }, error = function(e) {
-    cat("Error en upload_to_dropbox:", e$message, "\n")
     return(list(success = FALSE, error = as.character(e)))
   })
 }
 
-# Función para listar archivos de Dropbox por carpeta
 list_dropbox_files <- function(folder_path = NULL) {
   tryCatch({
     search_path <- if (is.null(folder_path)) "" else paste0("/", folder_path)
@@ -336,7 +614,7 @@ list_dropbox_files <- function(folder_path = NULL) {
     response <- POST(
       url = "https://api.dropboxapi.com/2/files/list_folder",
       add_headers(
-        "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
+        "Authorization" = paste("Bearer", get_dropbox_token()),
         "Content-Type" = "application/json"
       ),
       body = jsonlite::toJSON(list(
@@ -371,13 +649,12 @@ list_dropbox_files <- function(folder_path = NULL) {
   })
 }
 
-# Función para eliminar archivo de Dropbox
 delete_dropbox_file <- function(file_path) {
   tryCatch({
     response <- POST(
       url = "https://api.dropboxapi.com/2/files/delete_v2",
       add_headers(
-        "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
+        "Authorization" = paste("Bearer", get_dropbox_token()),
         "Content-Type" = "application/json"
       ),
       body = jsonlite::toJSON(list(path = file_path), auto_unbox = TRUE)
@@ -389,27 +666,22 @@ delete_dropbox_file <- function(file_path) {
   })
 }
 
-# NUEVAS FUNCIONES PARA ALMACENAMIENTO PERSISTENTE EN DROPBOX
+# ============================================================================
+# FUNCIONES DE ALMACENAMIENTO DE DATOS
+# ============================================================================
 
-# Función para subir datos a Dropbox
 save_data_to_dropbox <- function(project_data) {
   tryCatch({
-    # Crear archivo temporal
     temp_file <- tempfile(fileext = ".xlsx")
     writexl::write_xlsx(project_data, temp_file)
 
-    # Subir a Dropbox con backup por timestamp
     timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
-    # Archivo principal (siempre se sobrescribe)
     main_result <- upload_to_dropbox(temp_file, "project_data.xlsx", "scicontrol/data")
-
-    # Backup con timestamp (para historial)
     backup_result <- upload_to_dropbox(temp_file,
                                        paste0("project_data_backup_", timestamp, ".xlsx"),
                                        "scicontrol/backups")
 
-    # Limpiar archivo temporal
     unlink(temp_file)
 
     return(list(
@@ -423,14 +695,12 @@ save_data_to_dropbox <- function(project_data) {
   })
 }
 
-# Función para cargar datos desde Dropbox
 load_data_from_dropbox <- function() {
   tryCatch({
-    # Intentar descargar el archivo principal
     response <- GET(
       url = "https://content.dropboxapi.com/2/files/download",
       add_headers(
-        "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
+        "Authorization" = paste("Bearer", get_dropbox_token()),
         "Dropbox-API-Arg" = jsonlite::toJSON(list(
           path = "/scicontrol/data/project_data.xlsx"
         ), auto_unbox = TRUE)
@@ -438,23 +708,17 @@ load_data_from_dropbox <- function() {
     )
 
     if (response$status_code == 200) {
-      # Crear archivo temporal para descargar
       temp_file <- tempfile(fileext = ".xlsx")
       writeBin(content(response, "raw"), temp_file)
 
-      # Leer datos
       project_data <- read_excel(temp_file)
-
-      # Limpiar archivo temporal
       unlink(temp_file)
 
-      # Asegurar estructura correcta
       required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                             "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
                             "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
                             "Observaciones")
 
-      # Agregar columnas faltantes
       missing_columns <- setdiff(required_columns, colnames(project_data))
       if (length(missing_columns) > 0) {
         for (col in missing_columns) {
@@ -462,7 +726,6 @@ load_data_from_dropbox <- function() {
         }
       }
 
-      # Normalizar tipos de datos
       date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                         "Fecha_Aceptado", "Fecha_Publicado")
 
@@ -487,13 +750,10 @@ load_data_from_dropbox <- function() {
         project_data$Progreso <- as.numeric(project_data$Progreso)
       }
 
-      # Convertir a data.frame estándar
       project_data <- as.data.frame(project_data, stringsAsFactors = FALSE)
-
       return(project_data)
 
     } else if (response$status_code == 409) {
-      # Archivo no existe, crear estructura inicial
       warning("Archivo de datos no encontrado en Dropbox, creando estructura inicial")
       return(create_initial_data_structure())
     } else {
@@ -506,7 +766,6 @@ load_data_from_dropbox <- function() {
   })
 }
 
-# Función para crear estructura inicial
 create_initial_data_structure <- function() {
   project_data <- data.frame(
     Nombre = character(),
@@ -527,36 +786,31 @@ create_initial_data_structure <- function() {
   return(project_data)
 }
 
-# Aumentar el límite de tamaño de archivo a 100 MB
+# Configurar límite de tamaño de archivo
 options(shiny.maxRequestSize = 100*1024^2)
 
-# Definir carpeta local para el archivo de datos (backup local)
+# Definir carpeta local para backup
 data_dir <- "data"
 if (!dir.exists(data_dir)) {
   dir.create(data_dir)
 }
 data_file <- file.path(data_dir, "project_data.xlsx")
 
-# FUNCIÓN MODIFICADA PARA CARGAR DATOS (CON DROPBOX PRIORITARIO)
 load_project_data <- function() {
-  if (!STORAGE_CONFIGURED) {
-    warning("Dropbox no configurado, usando estructura inicial")
+  if (!check_dropbox_config()) {
+    warning("Dropbox OAuth no configurado, usando estructura inicial")
     return(create_initial_data_structure())
   }
 
-  # Intentar cargar desde Dropbox primero
   dropbox_data <- load_data_from_dropbox()
 
-  # Si hay datos en Dropbox, usarlos
   if (nrow(dropbox_data) > 0) {
     return(dropbox_data)
   }
 
-  # Si no hay datos en Dropbox, verificar archivo local (para compatibilidad)
   if (file.exists(data_file)) {
     local_data <- read_excel(data_file)
 
-    # Si hay datos locales, subirlos a Dropbox y usarlos
     if (nrow(local_data) > 0) {
       upload_result <- save_data_to_dropbox(local_data)
       if (upload_result$success) {
@@ -566,23 +820,18 @@ load_project_data <- function() {
     }
   }
 
-  # Si no hay datos en ningún lado, crear estructura inicial
   return(create_initial_data_structure())
 }
 
-# FUNCIÓN MODIFICADA PARA GUARDAR DATOS (CON DROPBOX PRIORITARIO)
 save_project_data <- function(project_data) {
-  if (!STORAGE_CONFIGURED) {
-    # Fallback: guardar solo localmente si Dropbox no está configurado
+  if (!check_dropbox_config()) {
     writexl::write_xlsx(project_data, data_file)
-    warning("Dropbox no configurado, guardando solo localmente")
+    warning("Dropbox OAuth no configurado, guardando solo localmente")
     return(list(success = TRUE, message = "Guardado localmente"))
   }
 
-  # Guardar en Dropbox (principal)
   dropbox_result <- save_data_to_dropbox(project_data)
 
-  # También guardar localmente como backup
   tryCatch({
     writexl::write_xlsx(project_data, data_file)
   }, error = function(e) {
@@ -592,12 +841,11 @@ save_project_data <- function(project_data) {
   return(dropbox_result)
 }
 
-# Verificar configuración al inicio
-STORAGE_CONFIGURED <- check_dropbox_config()
+# ============================================================================
+# FUNCIONES DE ANÁLISIS Y VALIDACIÓN
+# ============================================================================
 
-# FUNCIÓN MEJORADA PARA VALIDAR FECHAS CON MANEJO DE TIPOS
 validate_dates <- function(data) {
-  # Función auxiliar para convertir fechas de manera segura
   safe_date_convert <- function(x) {
     if (is.na(x) || x == "" || x == "NA") return(as.Date(NA))
     tryCatch({
@@ -609,27 +857,23 @@ validate_dates <- function(data) {
     }, error = function(e) as.Date(NA))
   }
 
-  # Convertir todas las fechas de manera segura
   data$Fecha_Inicio_Date <- sapply(data$Fecha_Inicio, safe_date_convert)
   data$Fecha_Envio_Date <- sapply(data$Fecha_Envio, safe_date_convert)
   data$Fecha_Respuesta_Date <- sapply(data$Fecha_Respuesta, safe_date_convert)
   data$Fecha_Aceptado_Date <- sapply(data$Fecha_Aceptado, safe_date_convert)
   data$Fecha_Publicado_Date <- sapply(data$Fecha_Publicado, safe_date_convert)
 
-  # Convertir de numeric a Date (resultado de sapply)
   data$Fecha_Inicio_Date <- as.Date(data$Fecha_Inicio_Date, origin = "1970-01-01")
   data$Fecha_Envio_Date <- as.Date(data$Fecha_Envio_Date, origin = "1970-01-01")
   data$Fecha_Respuesta_Date <- as.Date(data$Fecha_Respuesta_Date, origin = "1970-01-01")
   data$Fecha_Aceptado_Date <- as.Date(data$Fecha_Aceptado_Date, origin = "1970-01-01")
   data$Fecha_Publicado_Date <- as.Date(data$Fecha_Publicado_Date, origin = "1970-01-01")
 
-  # Crear columna de alertas
   data$Alertas <- ""
 
   for (i in 1:nrow(data)) {
     alertas <- c()
 
-    # Validar orden de fechas
     if (!is.na(data$Fecha_Inicio_Date[i]) && !is.na(data$Fecha_Envio_Date[i])) {
       if (data$Fecha_Envio_Date[i] < data$Fecha_Inicio_Date[i]) {
         alertas <- c(alertas, "⚠️ Envío anterior al inicio")
@@ -654,7 +898,6 @@ validate_dates <- function(data) {
       }
     }
 
-    # Verificar fechas futuras
     today <- Sys.Date()
     if (!is.na(data$Fecha_Envio_Date[i]) && data$Fecha_Envio_Date[i] > today) {
       alertas <- c(alertas, "📅 Fecha de envío en el futuro")
@@ -666,11 +909,9 @@ validate_dates <- function(data) {
   return(data)
 }
 
-# FUNCIÓN MEJORADA PARA CALCULAR DÍAS CON TIPOS CONSISTENTES
 calculate_days_improved <- function(data) {
   data <- validate_dates(data)
 
-  # Calcular días usando las fechas convertidas
   data$Dias_Envio_Inicio <- ifelse(
     !is.na(data$Fecha_Inicio_Date) & !is.na(data$Fecha_Envio_Date) &
       data$Fecha_Envio_Date >= data$Fecha_Inicio_Date,
@@ -708,7 +949,6 @@ calculate_days_improved <- function(data) {
     NA
   )
 
-  # Remover columnas temporales de fechas
   cols_to_remove <- c("Fecha_Inicio_Date", "Fecha_Envio_Date", "Fecha_Respuesta_Date",
                       "Fecha_Aceptado_Date", "Fecha_Publicado_Date")
   data <- data[, !colnames(data) %in% cols_to_remove]
@@ -716,10 +956,16 @@ calculate_days_improved <- function(data) {
   return(data)
 }
 
-# UI MEJORADO CON SINCRONIZACIÓN
+# ============================================================================
+# INTERFAZ DE USUARIO (UI)
+# ============================================================================
+
 ui <- dashboardPage(
   dashboardHeader(
-    title = "SciControl",
+    title = div(id = "app-title",
+                "SciControl",
+                style = "cursor: pointer; user-select: none;",
+                title = "Doble clic para opciones de desarrollador"),
     tags$li(class = "dropdown", style = "padding: 8px;",
             div(id = "storage_status_indicator",
                 textOutput("storage_status_display"),
@@ -730,6 +976,7 @@ ui <- dashboardPage(
   dashboardSidebar(
     useShinyjs(),
     sidebarMenu(
+      menuItem("⚙️ Configuración", tabName = "config", icon = icon("cog")),
       menuItem("Agregar Proyecto", tabName = "agregar", icon = icon("plus")),
       menuItem("Ver Proyectos", tabName = "ver", icon = icon("table")),
       menuItem("Análisis de Tiempos", tabName = "dias", icon = icon("clock")),
@@ -756,30 +1003,89 @@ ui <- dashboardPage(
     .metric-box { text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px; margin: 5px; }
     .metric-number { font-size: 2em; font-weight: bold; color: #336699; }
     .metric-label { font-size: 0.9em; color: #666; }
+    .dataTables_wrapper .dataTables_scroll { overflow-x: auto; }
+    .progress-bar-container { background-color: #f3f3f3; border-radius: 5px; overflow: hidden; }
+    .progress-bar { background-color: #e74c3c; color: white; text-align: center; padding: 5px 0; transition: width 0.3s ease; }
 
-    /* ESTILOS ESPECÍFICOS PARA LA TABLA DE PROYECTOS */
-    .dataTables_wrapper .dataTables_scroll {
-      overflow-x: auto;
+    /* Estilos para el título clickeable */
+    #app-title {
+      transition: opacity 0.2s;
     }
+    #app-title:hover {
+      opacity: 0.8;
+    }
+  ")),
 
-    /* MEJORAR APARIENCIA DE LAS BARRAS DE PROGRESO */
-    .progress-bar-container {
-      background-color: #f3f3f3;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-
-    .progress-bar {
-      background-color: #e74c3c;
-      color: white;
-      text-align: center;
-      padding: 5px 0;
-      transition: width 0.3s ease;
-    }
-  "))
-    )
-    ,
+      # JavaScript para manejar doble clic en el título
+      tags$script(HTML("
+        $(document).ready(function() {
+          $('#app-title').dblclick(function() {
+            $('#developer-auth-modal').modal('show');
+          });
+        });
+      "))
+    ),
     tabItems(
+      # Tab: Configuración Dropbox
+      tabItem(tabName = "config",
+              fluidRow(
+                box(title = "🔧 Configuración de Dropbox OAuth 2.0",
+                    width = 12, status = "primary",
+
+                    div(id = "oauth_status_display",
+                        htmlOutput("oauth_status_info")
+                    ),
+
+                    br(),
+
+                    conditionalPanel(
+                      condition = "output.show_oauth_buttons",
+                      h4("🔐 Autorización OAuth"),
+
+                      div(class = "alert alert-info",
+                          HTML("📋 <strong>Importante:</strong> Asegúrate de que tu app de Dropbox tenga configurados estos Redirect URIs:<br>
+                               • <code>http://localhost:1410/</code><br>
+                               • <code>http://localhost:1411/</code><br>
+                               • <code>http://localhost:1412/</code><br>
+                               • <code>http://localhost:1413/</code><br>
+                               • <code>http://localhost:1414/</code><br>
+                               <br>Ve a <a href='https://www.dropbox.com/developers/apps' target='_blank'>tu app en Dropbox</a> → Settings → OAuth2 redirect URIs")
+                      ),
+
+                      p("Autoriza el acceso a tu cuenta de Dropbox:"),
+
+                      fluidRow(
+                        column(3,
+                               actionButton("start_oauth", "🚀 Iniciar Autorización OAuth",
+                                            class = "btn-success", style = "width: 100%;")
+                        ),
+                        column(3,
+                               actionButton("test_auth_url", "🔗 Probar URL de Autorización",
+                                            class = "btn-warning", style = "width: 100%;")
+                        ),
+                        column(3,
+                               actionButton("manual_auth", "✍️ Autorización Manual",
+                                            class = "btn-secondary", style = "width: 100%;")
+                        ),
+                        column(3,
+                               actionButton("refresh_token", "🔄 Refrescar Token",
+                                            class = "btn-info", style = "width: 100%;")
+                        )
+                      ),
+                      br()
+                    ),
+
+                    verbatimTextOutput("oauth_operation_status")
+                )
+              ),
+
+              fluidRow(
+                box(title = "📊 Estado de Tokens", width = 12,
+                    DTOutput("token_status_table")
+                )
+              )
+      ),
+
       # Tab: Agregar Proyecto
       tabItem(tabName = "agregar",
               fluidRow(
@@ -838,10 +1144,9 @@ ui <- dashboardPage(
                     actionButton("delete_button", "Eliminar Proyecto", class = "btn-danger")
                 )
               )
-      )
-      ,
+      ),
 
-      # Tab: Análisis de Tiempos MEJORADO
+      # Tab: Análisis de Tiempos
       tabItem(tabName = "dias",
               fluidRow(
                 box(title = "📊 Resumen de Métricas", width = 12, status = "info",
@@ -858,7 +1163,7 @@ ui <- dashboardPage(
               )
       ),
 
-      # Tab: NUEVO Dashboard Visual
+      # Tab: Dashboard Visual
       tabItem(tabName = "dashboard",
               fluidRow(
                 box(title = "📊 Distribución de Estados", width = 6,
@@ -977,25 +1282,64 @@ ui <- dashboardPage(
                 )
               )
       )
+    ),
+
+    # Modal de autenticación de desarrollador (oculto inicialmente)
+    div(id = "developer-auth-modal", class = "modal fade", role = "dialog",
+        div(class = "modal-dialog",
+            div(class = "modal-content",
+                div(class = "modal-header",
+                    tags$button(type = "button", class = "close", `data-dismiss` = "modal", "×"),
+                    h4(class = "modal-title", "🔐 Acceso de Desarrollador")
+                ),
+                div(class = "modal-body",
+                    p("Ingresa la contraseña de desarrollador para acceder a las configuraciones avanzadas:"),
+                    passwordInput("developer_password_input", "Contraseña:", placeholder = "Contraseña de desarrollador"),
+                    br(),
+                    div(id = "developer_auth_message", style = "color: red; font-weight: bold;")
+                ),
+                div(class = "modal-footer",
+                    tags$button(type = "button", class = "btn btn-default", `data-dismiss` = "modal", "Cancelar"),
+                    actionButton("authenticate_developer", "Autenticar", class = "btn btn-primary")
+                )
+            )
+        )
     )
   )
 )
 
-# SERVER MEJORADO
+# ============================================================================
+# SERVIDOR (SERVER)
+# ============================================================================
+
 server <- function(input, output, session) {
-  Sys.setenv(TZ = "America/Lima")
 
-
+  # Usar shinyjs para funciones JavaScript
+  useShinyjs()
 
   # Variables reactivas
-  project_data <- reactiveVal(load_project_data())
+  project_data <- reactiveVal(create_initial_data_structure())
   files_refresh <- reactiveVal(0)
+  oauth_configured <- reactiveVal(TRUE)  # Siempre configurado con credenciales integradas
+  tokens_valid <- reactiveVal(FALSE)
+  developer_mode <- reactiveVal(FALSE)  # Modo desarrollador
 
   progress_map <- list(
     "Introducción" = 10, "Método" = 30, "Resultados" = 50,
     "Discusión" = 70, "Enviado" = 80, "Revisión" = 90,
     "Aceptado" = 95, "Publicado" = 100
   )
+
+  # Al iniciar la aplicación, verificar configuración OAuth
+  observe({
+    tokens_ok <- initialize_dropbox_oauth()
+    tokens_valid(tokens_ok)
+
+    if (tokens_ok) {
+      initial_data <- load_project_data()
+      project_data(initial_data)
+    }
+  })
 
   # Datos mejorados con validación
   days_data_improved <- reactive({
@@ -1004,170 +1348,447 @@ server <- function(input, output, session) {
     calculate_days_improved(data)
   })
 
-  # Indicador de estado de almacenamiento en el header
-  output$storage_status_display <- renderText({
-    if (STORAGE_CONFIGURED) {
-      "🟢 Dropbox Conectado"
+  # ========================================================================
+  # SISTEMA DE AUTENTICACIÓN DE DESARROLLADOR
+  # ========================================================================
+
+  # Output para controlar visibilidad del modo desarrollador
+  output$developer_mode <- reactive({
+    developer_mode()
+  })
+  outputOptions(output, "developer_mode", suspendWhenHidden = FALSE)
+
+  # Autenticación de desarrollador
+  observeEvent(input$authenticate_developer, {
+    req(input$developer_password_input)
+
+    if (input$developer_password_input == DEVELOPER_PASSWORD) {
+      developer_mode(TRUE)
+      developer_authenticated <<- TRUE
+
+      # Limpiar contraseña y cerrar modal
+      updateTextInput(session, "developer_password_input", value = "")
+      runjs("$('#developer-auth-modal').modal('hide');")
+
+      showNotification("🔓 Modo desarrollador activado", type = "message", duration = 3)
+
+      # Limpiar mensaje de error
+      runjs("document.getElementById('developer_auth_message').innerHTML = '';")
+
     } else {
-      "🔴 Sin Conexión"
+      # Mostrar error
+      runjs("document.getElementById('developer_auth_message').innerHTML = '❌ Contraseña incorrecta';")
+      showNotification("❌ Contraseña incorrecta", type = "error", duration = 3)
     }
   })
 
-  # Estado de sincronización
-  output$sync_status_info <- renderUI({
-    data <- project_data()
-    last_save_time <- if (file.exists(data_file)) {
-      format(
-        file.mtime(data_file),
-        tz     = "America/Lima",
-        usetz  = FALSE,
-        format = "%Y-%m-%d %H:%M:%S"
+  # Salir del modo desarrollador
+  observeEvent(input$exit_developer_mode, {
+    developer_mode(FALSE)
+    developer_authenticated <<- FALSE
+    showNotification("🔒 Modo desarrollador desactivado", type = "message", duration = 3)
+  })
+
+  # Reset configuración OAuth (solo desarrolladores)
+  observeEvent(input$reset_oauth_config, {
+    if (!developer_mode()) return()
+
+    showModal(modalDialog(
+      title = "⚠️ Confirmar Reset OAuth",
+      "¿Estás seguro de que quieres eliminar toda la configuración OAuth? Esto requerirá reautorizar la aplicación.",
+      footer = tagList(
+        modalButton("Cancelar"),
+        actionButton("confirm_reset_oauth", "Sí, Reset", class = "btn-danger")
       )
-    } else {
-      "Nunca"
-    }
+    ))
+  })
+
+  observeEvent(input$confirm_reset_oauth, {
+    removeModal()
+
+    # Limpiar tokens
+    DROPBOX_ACCESS_TOKEN <<- ""
+    DROPBOX_REFRESH_TOKEN <<- ""
+    TOKEN_EXPIRY_TIME <<- NULL
+    tokens_valid(FALSE)
+
+    # Eliminar archivos de tokens
+    if (file.exists("dropbox_tokens.rds")) file.remove("dropbox_tokens.rds")
+
+    output$oauth_operation_status <- renderText("✅ Configuración OAuth reseteada. Reautoriza la aplicación.")
+    showNotification("OAuth configuration reset", type = "warning")
+  })
+
+  # ========================================================================
+  # OUTPUTS PARA USUARIOS NORMALES (SIN MODO DESARROLLADOR)
+  # ========================================================================
+
+  output$system_status_info <- renderUI({
+    data <- project_data()
 
     div(
-      h4("📊 Estado Actual del Sistema"),
       tags$ul(
-        tags$li(paste("💾 Proyectos en memoria:", nrow(data))),
-        tags$li(paste("🕒 Última modificación local:", last_save_time)),
-        tags$li(paste("☁️ Dropbox:", if(STORAGE_CONFIGURED) "✅ Configurado" else "❌ No configurado")),
-        tags$li(paste("🔄 Auto-sincronización:", if(STORAGE_CONFIGURED) "✅ Activa" else "❌ Inactiva"))
+        tags$li(paste("📊 Proyectos en el sistema:", nrow(data))),
+        tags$li(paste("☁️ Estado de sincronización:", if(tokens_valid()) "✅ Activa" else "⚠️ Inactiva")),
+        tags$li(paste("💾 Última actualización:", format(Sys.time(), "%Y-%m-%d %H:%M"))),
+        tags$li(paste("🔄 Auto-guardado:", if(tokens_valid()) "✅ Habilitado" else "❌ Deshabilitado"))
       ),
-      if (!STORAGE_CONFIGURED) {
+
+      if (!tokens_valid()) {
         div(class = "alert alert-warning",
-            "⚠️ Configure Dropbox para habilitar la sincronización automática y evitar pérdida de datos al republicar."
+            "⚠️ La sincronización automática no está disponible. Contacta al administrador si persisten los problemas."
         )
       } else {
         div(class = "alert alert-success",
-            "✅ Sistema configurado correctamente. Los datos se sincronizan automáticamente con Dropbox."
+            "✅ Sistema funcionando correctamente. Tus datos se sincronizan automáticamente."
         )
       }
     )
   })
 
-  # Validación de fechas en tiempo real
-  observeEvent(c(input$start_date, input$send_date, input$response_date,
-                 input$acceptance_date, input$publication_date), {
+  # Botones de usuario normal (versiones simplificadas)
+  observeEvent(input$user_sync_data, {
+    if (!tokens_valid()) {
+      output$user_operation_status <- renderText("❌ Sincronización no disponible. Contacta al administrador.")
+      return()
+    }
 
-                   # VALIDACIÓN ROBUSTA - COMPROBAR QUE LOS INPUTS EXISTAN Y TENGAN VALORES
-                   if (is.null(input$start_date) && is.null(input$send_date) &&
-                       is.null(input$response_date) && is.null(input$acceptance_date) &&
-                       is.null(input$publication_date)) {
-                     return()
-                   }
+    output$user_operation_status <- renderText("🔄 Sincronizando datos...")
 
-                   alerts <- c()
-
-                   # VALIDAR FECHA DE INICIO VS ENVÍO
-                   if (!is.null(input$start_date) && !is.null(input$send_date) &&
-                       length(input$start_date) > 0 && length(input$send_date) > 0 &&
-                       !is.na(input$start_date) && !is.na(input$send_date)) {
-
-                     tryCatch({
-                       if (as.Date(input$send_date) < as.Date(input$start_date)) {
-                         alerts <- c(alerts, "⚠️ La fecha de envío debe ser posterior a la fecha de inicio")
-                       }
-                     }, error = function(e) {
-                       # Ignorar errores de conversión de fecha
-                     })
-                   }
-
-                   # VALIDAR FECHA DE ENVÍO VS RESPUESTA
-                   if (!is.null(input$send_date) && !is.null(input$response_date) &&
-                       length(input$send_date) > 0 && length(input$response_date) > 0 &&
-                       !is.na(input$send_date) && !is.na(input$response_date)) {
-
-                     tryCatch({
-                       if (as.Date(input$response_date) < as.Date(input$send_date)) {
-                         alerts <- c(alerts, "⚠️ La fecha de respuesta debe ser posterior a la fecha de envío")
-                       }
-                     }, error = function(e) {
-                       # Ignorar errores de conversión de fecha
-                     })
-                   }
-
-                   # VALIDAR FECHA DE RESPUESTA VS ACEPTACIÓN
-                   if (!is.null(input$response_date) && !is.null(input$acceptance_date) &&
-                       length(input$response_date) > 0 && length(input$acceptance_date) > 0 &&
-                       !is.na(input$response_date) && !is.na(input$acceptance_date)) {
-
-                     tryCatch({
-                       if (as.Date(input$acceptance_date) < as.Date(input$response_date)) {
-                         alerts <- c(alerts, "⚠️ La fecha de aceptación debe ser posterior a la fecha de respuesta")
-                       }
-                     }, error = function(e) {
-                       # Ignorar errores de conversión de fecha
-                     })
-                   }
-
-                   # VALIDAR FECHA DE ACEPTACIÓN VS PUBLICACIÓN
-                   if (!is.null(input$acceptance_date) && !is.null(input$publication_date) &&
-                       length(input$acceptance_date) > 0 && length(input$publication_date) > 0 &&
-                       !is.na(input$acceptance_date) && !is.na(input$publication_date)) {
-
-                     tryCatch({
-                       if (as.Date(input$publication_date) < as.Date(input$acceptance_date)) {
-                         alerts <- c(alerts, "⚠️ La fecha de publicación debe ser posterior a la fecha de aceptación")
-                       }
-                     }, error = function(e) {
-                       # Ignorar errores de conversión de fecha
-                     })
-                   }
-
-                   # RENDERIZAR ALERTAS SOLO SI HAY ALGO QUE MOSTRAR
-                   output$date_validation_alerts <- renderUI({
-                     if (length(alerts) > 0) {
-                       div(class = "alert-box alert-warning",
-                           HTML(paste(alerts, collapse = "<br>")))
-                     } else {
-                       NULL
-                     }
-                   })
-                 }, ignoreNULL = FALSE, ignoreInit = FALSE)
-
-  # Sistema de subida de archivos
-  output$upload_system_status <- renderText({
-    if (STORAGE_CONFIGURED) {
-      "✅ Sistema listo para subir archivos a Dropbox"
+    data <- project_data()
+    if (nrow(data) > 0) {
+      save_result <- save_data_to_dropbox(data)
+      if (save_result$success) {
+        output$user_operation_status <- renderText("✅ Datos sincronizados correctamente.")
+      } else {
+        output$user_operation_status <- renderText("⚠️ Error en la sincronización. Contacta al administrador.")
+      }
     } else {
-      "⚠️ Configure primero el Access Token de Dropbox"
+      output$user_operation_status <- renderText("ℹ️ No hay datos para sincronizar.")
     }
   })
 
-  # Actualizar selectInputs dinámicamente
-  observe({
+  observeEvent(input$user_backup_data, {
+    if (!tokens_valid()) {
+      output$user_operation_status <- renderText("❌ Backup no disponible. Contacta al administrador.")
+      return()
+    }
+
+    output$user_operation_status <- renderText("🔄 Creando backup...")
+
     data <- project_data()
+    if (nrow(data) > 0) {
+      timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      temp_file <- tempfile(fileext = ".xlsx")
+      writexl::write_xlsx(data, temp_file)
 
-    # VALIDAR QUE data NO ESTÉ VACÍO
-    if (is.null(data) || nrow(data) == 0) return()
+      backup_result <- upload_to_dropbox(temp_file,
+                                         paste0("user_backup_", timestamp, ".xlsx"),
+                                         "scicontrol/user_backups")
+      unlink(temp_file)
 
-    # VALIDAR QUE LA COLUMNA EXISTA
-    if (!"Nombre" %in% colnames(data)) return()
-
-    data$Nombre <- as.character(data$Nombre)
-    display_names <- ifelse(is.na(data$Nombre) | data$Nombre == "", "(sin nombre)", data$Nombre)
-
-    updateSelectInput(session, "delete_project", choices = display_names)
-    updateSelectInput(session, "project_select", choices = data$Nombre)
-    updateSelectInput(session, "project_view", choices = c("", data$Nombre))
+      if (backup_result$success) {
+        output$user_operation_status <- renderText("✅ Backup creado correctamente.")
+      } else {
+        output$user_operation_status <- renderText("⚠️ Error al crear backup. Contacta al administrador.")
+      }
+    } else {
+      output$user_operation_status <- renderText("ℹ️ No hay datos para respaldar.")
+    }
   })
 
+  observeEvent(input$user_export_data, {
+    data <- project_data()
+    if (nrow(data) == 0) {
+      output$user_operation_status <- renderText("ℹ️ No hay datos para exportar.")
+      return()
+    }
 
-  # NUEVA TABLA DE MÉTRICAS RESUMIDAS
+    output$user_operation_status <- renderText("📥 Para exportar datos, usa la pestaña 'Descargar Datos'.")
+    showNotification("Ve a la pestaña 'Descargar Datos' para exportar", type = "message")
+  })
+
+  # ========================================================================
+  # OUTPUTS DE CONFIGURACIÓN OAUTH
+  # ========================================================================
+
+  output$oauth_status_info <- renderUI({
+    if (!tokens_valid()) {
+      div(
+        h4("⚠️ Autorización requerida"),
+        div(class = "alert alert-info",
+            "ℹ️ La aplicación está configurada pero necesitas autorizar el acceso a Dropbox."
+        )
+      )
+    } else {
+      div(
+        h4("✅ Dropbox configurado y autorizado"),
+        div(class = "alert alert-success",
+            "🎉 Todo está listo. La sincronización automática está activa."
+        )
+      )
+    }
+  })
+
+  output$show_oauth_buttons <- reactive({
+    TRUE  # Siempre mostrar botones OAuth
+  })
+  outputOptions(output, "show_oauth_buttons", suspendWhenHidden = FALSE)
+
+  # Autorización manual
+  observeEvent(input$manual_auth, {
+    # Verificar modo desarrollador
+    if (!developer_mode()) {
+      showNotification("❌ Acceso denegado", type = "error")
+      return()
+    }
+
+    auth_url <- generate_auth_url()
+
+    showModal(modalDialog(
+      title = "✍️ Autorización Manual de Dropbox",
+      HTML(paste(
+        "<h4>📋 Instrucciones paso a paso:</h4>",
+        "<ol>",
+        "<li><strong>Copia esta URL</strong> y pégala en tu navegador:</li>",
+        "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-family: monospace; font-size: 12px;'>",
+        auth_url,
+        "</div>",
+        "<li><strong>Autoriza la aplicación</strong> haciendo clic en 'Permitir'</li>",
+        "<li><strong>Copia el código</strong> de la URL que aparece después. Busca algo como:</li>",
+        "<div style='background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; font-family: monospace; font-size: 12px;'>",
+        "http://localhost:1410/?code=<strong>CODIGO_AQUI</strong>&state=...",
+        "</div>",
+        "<li><strong>Pega solo el código</strong> en el campo de abajo (la parte después de 'code=' y antes de '&')</li>",
+        "</ol>"
+      )),
+      textInput("manual_auth_code",
+                "Código de Autorización:",
+                placeholder = "Pega aquí el código que obtuviste de la URL"),
+      footer = tagList(
+        modalButton("Cancelar"),
+        actionButton("submit_manual_code", "Procesar Código", class = "btn-primary")
+      ),
+      easyClose = FALSE,
+      size = "l"
+    ))
+
+    # También abrir automáticamente la URL
+    browseURL(auth_url)
+  })
+
+  # Procesar código manual
+  observeEvent(input$submit_manual_code, {
+    req(input$manual_auth_code)
+
+    if (nchar(trimws(input$manual_auth_code)) < 10) {
+      showNotification("El código parece demasiado corto. Verifica que hayas copiado el código completo.", type = "error")
+      return()
+    }
+
+    removeModal()
+
+    output$oauth_operation_status <- renderText("🔄 Procesando código de autorización manual...")
+
+    tryCatch({
+      auth_code <- trimws(input$manual_auth_code)
+
+      # Limpiar el código si viene con URL completa
+      if (grepl("code=", auth_code)) {
+        auth_code <- gsub(".*code=([^&]+).*", "\\1", auth_code)
+      }
+
+      cat("📝 Código manual recibido:", substr(auth_code, 1, 20), "...\n")
+
+      if (exchange_code_for_tokens(auth_code)) {
+        tokens_valid(TRUE)
+        output$oauth_operation_status <- renderText("✅ Autorización manual completada exitosamente.")
+        showNotification("Dropbox autorizado correctamente", type = "message")
+
+        # Cargar datos después de la autorización
+        initial_data <- load_project_data()
+        project_data(initial_data)
+      } else {
+        output$oauth_operation_status <- renderText("❌ Error al procesar el código de autorización.")
+        showNotification("Error al procesar código", type = "error")
+      }
+    }, error = function(e) {
+      output$oauth_operation_status <- renderText(paste("❌ Error al procesar código:", e$message))
+      showNotification("Error en autorización manual", type = "error")
+      cat("❌ Error en autorización manual:", e$message, "\n")
+    })
+  })
+
+  # Probar URL de autorización
+  observeEvent(input$test_auth_url, {
+    # Verificar modo desarrollador
+    if (!developer_mode()) {
+      showNotification("❌ Acceso denegado", type = "error")
+      return()
+    }
+
+    auth_url <- generate_auth_url()
+
+    output$oauth_operation_status <- renderText(paste(
+      "🔗 URL de autorización generada:\n\n",
+      auth_url,
+      "\n\n✅ Puedes copiar esta URL y pegarla manualmente en tu navegador.",
+      "\n\n📋 Si funciona, verás la página de autorización de Dropbox.",
+      "\nSi no funciona, revisa la configuración de tu app en Dropbox."
+    ))
+
+    # También abrir automáticamente
+    browseURL(auth_url)
+
+    showNotification("URL de autorización generada y abierta", type = "message")
+  })
+
+  # Iniciar flujo OAuth
+  observeEvent(input$start_oauth, {
+    # Verificar modo desarrollador
+    if (!developer_mode()) {
+      showNotification("❌ Acceso denegado", type = "error")
+      return()
+    }
+
+    output$oauth_operation_status <- renderText("🔄 Verificando configuración...")
+
+    # Verificar configuración antes de iniciar
+    if (DROPBOX_APP_KEY == "") {
+      output$oauth_operation_status <- renderText("❌ Error: App Key no configurado")
+      return()
+    }
+
+    if (DROPBOX_APP_SECRET == "") {
+      output$oauth_operation_status <- renderText("❌ Error: App Secret no configurado")
+      return()
+    }
+
+    output$oauth_operation_status <- renderText("🔄 Iniciando autorización OAuth... Se abrirá tu navegador.")
+
+    # Mostrar información de debugging en la consola
+    cat("\n=== DEBUG INFO ===\n")
+    cat("App Key:", DROPBOX_APP_KEY, "\n")
+    cat("App Secret:", substr(DROPBOX_APP_SECRET, 1, 10), "...\n")
+    cat("Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
+
+    # Generar y mostrar URL de autorización
+    auth_url <- generate_auth_url()
+    cat("URL generada:", auth_url, "\n")
+    cat("==================\n\n")
+
+    tryCatch({
+      result <- start_oauth_flow()
+      if (result) {
+        tokens_valid(TRUE)
+        output$oauth_operation_status <- renderText("✅ Autorización OAuth completada exitosamente.")
+        showNotification("Dropbox autorizado correctamente", type = "message")
+
+        # Cargar datos después de la autorización
+        initial_data <- load_project_data()
+        project_data(initial_data)
+      } else {
+        output$oauth_operation_status <- renderText("❌ Error en la autorización automática. 💡 Prueba con 'Autorización Manual' para ingresar el código manualmente.")
+        showNotification("Prueba la autorización manual", type = "warning")
+      }
+    }, error = function(e) {
+      if (grepl("Manual intervention required", e$message)) {
+        output$oauth_operation_status <- renderText("⚠️ La autorización automática no funcionó. 💡 Usa el botón 'Autorización Manual' para completar el proceso copiando/pegando el código.")
+        showNotification("Usa autorización manual", type = "warning")
+      } else {
+        output$oauth_operation_status <- renderText(paste("❌ Error:", e$message, "\n💡 Intenta con 'Autorización Manual'."))
+        showNotification("Error en autorización - prueba manual", type = "error")
+      }
+      cat("❌ Error capturado:", e$message, "\n")
+    })
+  })
+
+  # Refrescar token manualmente
+  observeEvent(input$refresh_token, {
+    # Verificar modo desarrollador
+    if (!developer_mode()) {
+      showNotification("❌ Acceso denegado", type = "error")
+      return()
+    }
+
+    output$oauth_operation_status <- renderText("🔄 Refrescando token...")
+
+    if (refresh_dropbox_access_token()) {
+      tokens_valid(TRUE)
+      output$oauth_operation_status <- renderText("✅ Token refrescado exitosamente.")
+      showNotification("Token refrescado", type = "message")
+    } else {
+      output$oauth_operation_status <- renderText("❌ Error al refrescar token.")
+      showNotification("Error al refrescar token", type = "error")
+    }
+  })
+
+  # Tabla de estado de tokens
+  output$token_status_table <- renderDT({
+    if (!tokens_valid()) {
+      status_data <- data.frame(
+        Estado = "No autorizado",
+        Token = "No disponible",
+        Expira = "N/A",
+        stringsAsFactors = FALSE
+      )
+    } else {
+      access_token_preview <- if (DROPBOX_ACCESS_TOKEN != "") {
+        paste0(substr(DROPBOX_ACCESS_TOKEN, 1, 20), "...")
+      } else {
+        "No disponible"
+      }
+
+      refresh_token_preview <- if (DROPBOX_REFRESH_TOKEN != "") {
+        paste0(substr(DROPBOX_REFRESH_TOKEN, 1, 20), "...")
+      } else {
+        "No disponible"
+      }
+
+      expiry_text <- if (!is.null(TOKEN_EXPIRY_TIME)) {
+        format(TOKEN_EXPIRY_TIME, "%Y-%m-%d %H:%M:%S")
+      } else {
+        "Desconocido"
+      }
+
+      status_data <- data.frame(
+        Tipo = c("Access Token", "Refresh Token"),
+        Estado = c("✅ Activo", "✅ Disponible"),
+        Token = c(access_token_preview, refresh_token_preview),
+        Expira = c(expiry_text, "No expira"),
+        stringsAsFactors = FALSE
+      )
+    }
+
+    datatable(status_data,
+              options = list(pageLength = 5, dom = 't'),
+              rownames = FALSE,
+              escape = FALSE)
+  })
+
+  # Indicador de estado en el header
+  output$storage_status_display <- renderText({
+    if (tokens_valid()) {
+      "🟢 Dropbox OAuth Activo"
+    } else {
+      "🟡 Dropbox OAuth Inactivo"
+    }
+  })
+
+  # ========================================================================
+  # OUTPUTS DE ANÁLISIS Y MÉTRICAS
+  # ========================================================================
+
   output$metrics_summary <- renderUI({
     data <- days_data_improved()
     if (nrow(data) == 0) return(div("No hay datos disponibles"))
 
-    # Calcular métricas
     total_projects <- nrow(data)
     published <- sum(data$Estado == "Publicado", na.rm = TRUE)
     accepted <- sum(data$Estado %in% c("Aceptado", "Publicado"), na.rm = TRUE)
     avg_review_time <- round(mean(data$Dias_Respuesta_Envio, na.rm = TRUE), 1)
     avg_acceptance_time <- round(mean(data$Dias_Aceptado_Envio, na.rm = TRUE), 1)
 
-    # Calcular alertas
     data_with_alerts <- data[data$Alertas != "", ]
     total_alerts <- nrow(data_with_alerts)
 
@@ -1195,7 +1816,6 @@ server <- function(input, output, session) {
     )
   })
 
-  # NUEVA TABLA DE ALERTAS DE VALIDACIÓN
   output$validation_alerts_table <- renderDT({
     data <- days_data_improved()
     if (nrow(data) == 0) return(datatable(data.frame(), options = list(pageLength = 5)))
@@ -1217,7 +1837,6 @@ server <- function(input, output, session) {
       formatStyle("Alertas", backgroundColor = "#fff3cd", color = "#856404")
   })
 
-  # TABLA MEJORADA DE ANÁLISIS DE DÍAS
   output$days_table_improved <- renderDT({
     data <- days_data_improved()
     if (nrow(data) == 0) return(datatable(data.frame(), options = list(pageLength = 10)))
@@ -1227,7 +1846,6 @@ server <- function(input, output, session) {
                              "Dias_Aceptado_Respuesta", "Dias_Aceptado_Envio",
                              "Dias_Aceptado_Publicado")]
 
-    # Renombrar columnas para mejor presentación
     colnames(display_data) <- c("Proyecto", "Revista", "Cuartil", "Estado",
                                 "Días Inicio→Envío", "Días Envío→Respuesta",
                                 "Días Respuesta→Aceptado", "Días Envío→Aceptado",
@@ -1241,9 +1859,10 @@ server <- function(input, output, session) {
                                                   c("#ffebee", "#fff3e0", "#e8f5e8", "#c8e6c9")))
   })
 
-  # NUEVOS GRÁFICOS PARA EL DASHBOARD
+  # ========================================================================
+  # OUTPUTS DE GRÁFICOS
+  # ========================================================================
 
-  # Función auxiliar para gráficos vacíos
   plotly_empty <- function() {
     plot_ly() %>%
       add_annotations(
@@ -1256,7 +1875,6 @@ server <- function(input, output, session) {
              yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
   }
 
-  # Gráfico de distribución de estados
   output$status_chart <- renderPlotly({
     data <- project_data()
     if (nrow(data) == 0) return(plotly_empty())
@@ -1277,7 +1895,6 @@ server <- function(input, output, session) {
     ggplotly(p, tooltip = c("x", "y"))
   })
 
-  # Gráfico de tiempo por cuartil
   output$quartile_time_chart <- renderPlotly({
     data <- days_data_improved()
     if (nrow(data) == 0) return(plotly_empty())
@@ -1305,7 +1922,6 @@ server <- function(input, output, session) {
     ggplotly(p, tooltip = c("x", "y"))
   })
 
-  # Línea de tiempo de proyectos
   output$timeline_chart <- renderPlotly({
     data <- days_data_improved()
     if (nrow(data) == 0) return(plotly_empty())
@@ -1340,7 +1956,6 @@ server <- function(input, output, session) {
     ggplotly(p, tooltip = c("colour", "x", "xend"))
   })
 
-  # Análisis de rendimiento
   output$performance_chart <- renderPlotly({
     data <- days_data_improved()
     if (nrow(data) == 0) return(plotly_empty())
@@ -1370,7 +1985,6 @@ server <- function(input, output, session) {
     ggplotly(p, tooltip = c("x", "y", "colour"))
   })
 
-  # Tendencias mensuales
   output$monthly_trends <- renderPlotly({
     data <- days_data_improved()
     if (nrow(data) == 0) return(plotly_empty())
@@ -1402,15 +2016,14 @@ server <- function(input, output, session) {
     ggplotly(p, tooltip = c("x", "y"))
   })
 
-  # TABLA DE PROYECTOS CON ALERTAS
-  output$project_table <- renderDT({
-    cat("=== RENDERIZANDO TABLA COMPLETA ===\n")
+  # ========================================================================
+  # TABLA DE PROYECTOS
+  # ========================================================================
 
-    # Obtener datos validados
+  output$project_table <- renderDT({
     data <- tryCatch({
       days_data_improved()
     }, error = function(e) {
-      cat("Error en days_data_improved, usando datos básicos:", e$message, "\n")
       project_data()
     })
 
@@ -1422,18 +2035,14 @@ server <- function(input, output, session) {
       ))
     }
 
-    cat("Procesando", nrow(data), "proyectos\n")
-
-    # Crear barras de progreso
     data$Progreso_Barra <- sapply(data$Estado, function(estado) {
       p <- progress_map[[estado]]
       if (is.null(p)) p <- 0
 
-      # Color según el progreso
-      color <- if (p >= 90) "#28a745"      # Verde para casi completado
-      else if (p >= 70) "#ffc107"  # Amarillo para en progreso avanzado
-      else if (p >= 40) "#fd7e14"  # Naranja para progreso medio
-      else "#dc3545"               # Rojo para inicio
+      color <- if (p >= 90) "#28a745"
+      else if (p >= 70) "#ffc107"
+      else if (p >= 40) "#fd7e14"
+      else "#dc3545"
 
       sprintf(
         '<div style="width:100%%; background-color:#f3f3f3; border-radius:5px; height:22px; border:1px solid #ddd;">
@@ -1441,7 +2050,6 @@ server <- function(input, output, session) {
        </div>', p, color, p)
     })
 
-    # Agregar indicadores de alerta si existen
     if ("Alertas" %in% colnames(data)) {
       data$Estado_Display <- ifelse(!is.na(data$Alertas) & data$Alertas != "",
                                     paste0(data$Estado, " ⚠️"),
@@ -1450,26 +2058,20 @@ server <- function(input, output, session) {
       data$Estado_Display <- data$Estado
     }
 
-    # Seleccionar columnas para mostrar
     display_cols <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                       "Revista", "Cuartil", "Estado_Display", "Grupo", "Progreso_Barra",
                       "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
                       "Observaciones")
 
-    # Verificar qué columnas existen
     available_cols <- intersect(display_cols, colnames(data))
     display_data <- data[, available_cols, drop = FALSE]
 
-    # Renombrar columnas para mejor presentación
     col_names <- colnames(display_data)
     col_names[col_names == "Estado_Display"] <- "Estado"
     col_names[col_names == "Progreso_Barra"] <- "Progreso"
     col_names[col_names == "Linea_Investigacion"] <- "Línea de Investigación"
     colnames(display_data) <- col_names
 
-    cat("Creando tabla con columnas:", paste(colnames(display_data), collapse = ", "), "\n")
-
-    # Crear tabla
     dt <- datatable(
       display_data,
       escape = FALSE,
@@ -1479,22 +2081,21 @@ server <- function(input, output, session) {
         autoWidth = FALSE,
         dom = 'Bfrtip',
         columnDefs = list(
-          list(width = '200px', targets = 0),     # Nombre
-          list(width = '100px', targets = 1:3),   # Fechas
-          list(width = '120px', targets = 4),     # Revista
-          list(width = '60px', targets = 5),      # Cuartil
-          list(width = '100px', targets = 6),     # Estado
-          list(width = '120px', targets = 7),     # Grupo
-          list(width = '150px', targets = 8),     # Progreso
-          list(width = '100px', targets = 9:10),  # Fechas aceptado/publicado
-          list(width = '150px', targets = 11)     # Línea investigación
+          list(width = '200px', targets = 0),
+          list(width = '100px', targets = 1:3),
+          list(width = '120px', targets = 4),
+          list(width = '60px', targets = 5),
+          list(width = '100px', targets = 6),
+          list(width = '120px', targets = 7),
+          list(width = '150px', targets = 8),
+          list(width = '100px', targets = 9:10),
+          list(width = '150px', targets = 11)
         )
       ),
       rownames = FALSE,
       selection = 'single'
     )
 
-    # Aplicar estilos condicionales si hay alertas
     if ("Alertas" %in% colnames(data)) {
       rows_with_alerts <- which(!is.na(data$Alertas) & data$Alertas != "")
       if (length(rows_with_alerts) > 0) {
@@ -1506,313 +2107,114 @@ server <- function(input, output, session) {
       }
     }
 
-    cat("Tabla creada exitosamente\n")
     return(dt)
   })
 
-  # Sincronización manual desde Dropbox
-  observeEvent(input$sync_from_dropbox, {
-    if (!STORAGE_CONFIGURED) {
-      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
-      return()
+  # ========================================================================
+  # VALIDACIÓN DE FECHAS EN TIEMPO REAL
+  # ========================================================================
+
+  observeEvent(c(input$start_date, input$send_date, input$response_date,
+                 input$acceptance_date, input$publication_date), {
+
+                   if (is.null(input$start_date) && is.null(input$send_date) &&
+                       is.null(input$response_date) && is.null(input$acceptance_date) &&
+                       is.null(input$publication_date)) {
+                     return()
+                   }
+
+                   alerts <- c()
+
+                   if (!is.null(input$start_date) && !is.null(input$send_date) &&
+                       length(input$start_date) > 0 && length(input$send_date) > 0 &&
+                       !is.na(input$start_date) && !is.na(input$send_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$send_date) < as.Date(input$start_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de envío debe ser posterior a la fecha de inicio")
+                       }
+                     }, error = function(e) {
+                     })
+                   }
+
+                   if (!is.null(input$send_date) && !is.null(input$response_date) &&
+                       length(input$send_date) > 0 && length(input$response_date) > 0 &&
+                       !is.na(input$send_date) && !is.na(input$response_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$response_date) < as.Date(input$send_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de respuesta debe ser posterior a la fecha de envío")
+                       }
+                     }, error = function(e) {
+                     })
+                   }
+
+                   if (!is.null(input$response_date) && !is.null(input$acceptance_date) &&
+                       length(input$response_date) > 0 && length(input$acceptance_date) > 0 &&
+                       !is.na(input$response_date) && !is.na(input$acceptance_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$acceptance_date) < as.Date(input$response_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de aceptación debe ser posterior a la fecha de respuesta")
+                       }
+                     }, error = function(e) {
+                     })
+                   }
+
+                   if (!is.null(input$acceptance_date) && !is.null(input$publication_date) &&
+                       length(input$acceptance_date) > 0 && length(input$publication_date) > 0 &&
+                       !is.na(input$acceptance_date) && !is.na(input$publication_date)) {
+
+                     tryCatch({
+                       if (as.Date(input$publication_date) < as.Date(input$acceptance_date)) {
+                         alerts <- c(alerts, "⚠️ La fecha de publicación debe ser posterior a la fecha de aceptación")
+                       }
+                     }, error = function(e) {
+                     })
+                   }
+
+                   output$date_validation_alerts <- renderUI({
+                     if (length(alerts) > 0) {
+                       div(class = "alert-box alert-warning",
+                           HTML(paste(alerts, collapse = "<br>")))
+                     } else {
+                       NULL
+                     }
+                   })
+                 }, ignoreNULL = FALSE, ignoreInit = FALSE)
+
+  # ========================================================================
+  # SISTEMA DE SUBIDA DE ARCHIVOS
+  # ========================================================================
+
+  output$upload_system_status <- renderText({
+    if (tokens_valid()) {
+      "✅ Sistema listo para subir archivos a Dropbox"
+    } else {
+      "⚠️ Configure primero OAuth de Dropbox en la pestaña de configuración"
     }
-
-    output$sync_operation_status <- renderText("🔄 Cargando datos desde Dropbox...")
-
-    tryCatch({
-      dropbox_data <- load_data_from_dropbox()
-
-      if (nrow(dropbox_data) > 0) {
-        project_data(dropbox_data)
-        output$sync_operation_status <- renderText(
-          paste("✅ Sincronización exitosa desde Dropbox.",
-                "Cargados", nrow(dropbox_data), "proyectos.")
-        )
-        showNotification("Datos sincronizados desde Dropbox", type = "message")
-      } else {
-        output$sync_operation_status <- renderText("⚠️ No se encontraron datos en Dropbox.")
-      }
-    }, error = function(e) {
-      output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", e$message))
-    })
   })
 
-  # Sincronización manual a Dropbox
-  observeEvent(input$sync_to_dropbox, {
-    if (!STORAGE_CONFIGURED) {
-      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
-      return()
-    }
-
+  observe({
     data <- project_data()
-    if (nrow(data) == 0) {
-      output$sync_operation_status <- renderText("⚠️ No hay datos para sincronizar.")
-      return()
-    }
 
-    output$sync_operation_status <- renderText("🔄 Subiendo datos a Dropbox...")
+    if (is.null(data) || nrow(data) == 0) return()
 
-    tryCatch({
-      save_result <- save_data_to_dropbox(data)
+    if (!"Nombre" %in% colnames(data)) return()
 
-      if (save_result$success) {
-        output$sync_operation_status <- renderText(
-          paste("✅ Sincronización exitosa a Dropbox.",
-                "Guardados", nrow(data), "proyectos.",
-                "\n📁 Archivo principal:", save_result$main_path,
-                "\n📋 Backup:", save_result$backup_path)
-        )
-        showNotification("Datos sincronizados a Dropbox", type = "message")
-      } else {
-        output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", save_result$error))
-      }
-    }, error = function(e) {
-      output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", e$message))
-    })
+    data$Nombre <- as.character(data$Nombre)
+    display_names <- ifelse(is.na(data$Nombre) | data$Nombre == "", "(sin nombre)", data$Nombre)
+
+    updateSelectInput(session, "delete_project", choices = display_names)
+    updateSelectInput(session, "project_select", choices = data$Nombre)
+    updateSelectInput(session, "project_view", choices = c("", data$Nombre))
   })
 
-  # Crear backup manual
-  observeEvent(input$manual_backup, {
-    if (!STORAGE_CONFIGURED) {
-      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
-      return()
-    }
-
-    data <- project_data()
-    if (nrow(data) == 0) {
-      output$sync_operation_status <- renderText("⚠️ No hay datos para respaldar.")
-      return()
-    }
-
-    output$sync_operation_status <- renderText("🔄 Creando backup manual...")
-
-    tryCatch({
-      timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-      temp_file <- tempfile(fileext = ".xlsx")
-      writexl::write_xlsx(data, temp_file)
-
-      backup_result <- upload_to_dropbox(temp_file,
-                                         paste0("manual_backup_", timestamp, ".xlsx"),
-                                         "scicontrol/manual_backups")
-      unlink(temp_file)
-
-      if (backup_result$success) {
-        output$sync_operation_status <- renderText(
-          paste("✅ Backup manual creado exitosamente.",
-                "\n📋 Archivo:", backup_result$name,
-                "\n📁 Ubicación:", backup_result$path)
-        )
-        showNotification("Backup manual creado", type = "message")
-
-      } else {
-        output$sync_operation_status <- renderText(paste("❌ Error al crear backup:", backup_result$error))
-      }
-    }, error = function(e) {
-      output$sync_operation_status <- renderText(paste("❌ Error al crear backup:", e$message))
-    })
-  })
-
-  # Lista de archivos de backup
-  output$backup_files_table <- renderDT({
-    if (!STORAGE_CONFIGURED) {
-      empty <- data.frame(Archivo = "Dropbox no configurado", Fecha = "", Tamaño = "", Tipo = "")
-      return(datatable(empty, options = list(pageLength = 5), rownames = FALSE, selection = "single"))
-    }
-
-    tryCatch({
-      backup_files <- list_dropbox_files("scicontrol/backups")
-      manual_backups <- list_dropbox_files("scicontrol/manual_backups")
-
-      all_backups <- rbind(
-        if(nrow(backup_files) > 0) data.frame(backup_files, Tipo = "Auto") else data.frame(),
-        if(nrow(manual_backups) > 0) data.frame(manual_backups, Tipo = "Manual") else data.frame()
-      )
-
-      if (nrow(all_backups) == 0) {
-        empty <- data.frame(Archivo = "No hay backups disponibles", Fecha = "", Tamaño = "", Tipo = "")
-        return(datatable(empty, options = list(pageLength = 5), rownames = FALSE, selection = "single"))
-      }
-
-      all_backups$Tamaño <- sapply(all_backups$size, function(x) {
-        if (x < 1024) paste(x, "B")
-        else if (x < 1024^2) paste(round(x/1024, 1), "KB")
-        else paste(round(x/1024^2, 1), "MB")
-      })
-
-      all_backups$Fecha <- format(
-        as.POSIXct(all_backups$modified,
-                   format = "%Y-%m-%dT%H:%M:%SZ",
-                   tz     = "UTC"),
-        tz     = "America/Lima",
-        format = "%Y-%m-%d %H:%M")
-
-      display_backups <- all_backups[, c("name", "Fecha", "Tamaño", "Tipo")]
-      colnames(display_backups) <- c("Archivo", "Fecha", "Tamaño", "Tipo")
-
-      return(datatable(display_backups,
-                       options = list(pageLength = 10, order = list(list(1, 'desc'))),
-                       rownames = FALSE,
-                       selection = "single"))
-    }, error = function(e) {
-      error_df <- data.frame(Archivo = paste("Error:", e$message), Fecha = "", Tamaño = "", Tipo = "")
-      return(datatable(error_df, options = list(pageLength = 5), rownames = FALSE, selection = "single"))
-    })
-  })
-
-  # Restaurar backup seleccionado
-  observeEvent(input$restore_backup, {
-    sel <- input$backup_files_table_rows_selected
-
-    if (is.null(sel) || length(sel) == 0) {
-      showModal(modalDialog(
-        title = "Atención",
-        "Por favor, seleccione primero un archivo de backup de la tabla.",
-        easyClose = TRUE,
-        footer = modalButton("Cerrar")
-      ))
-      return()
-    }
-
-    if (!STORAGE_CONFIGURED) {
-      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
-      return()
-    }
-
-    tryCatch({
-      # Obtener información del backup seleccionado
-      backup_files <- list_dropbox_files("scicontrol/backups")
-      manual_backups <- list_dropbox_files("scicontrol/manual_backups")
-
-      all_backups <- rbind(
-        if(nrow(backup_files) > 0) data.frame(backup_files, Tipo = "Auto") else data.frame(),
-        if(nrow(manual_backups) > 0) data.frame(manual_backups, Tipo = "Manual") else data.frame()
-      )
-
-      if (sel > nrow(all_backups)) {
-        output$sync_operation_status <- renderText("❌ Selección inválida.")
-        return()
-      }
-
-      selected_backup <- all_backups[sel, ]
-
-      showModal(modalDialog(
-        title = "🔄 Confirmar Restauración",
-        HTML(paste("¿Está seguro de que desea restaurar el siguiente backup?",
-                   "<br><br><strong>Archivo:</strong>", selected_backup$name,
-                   "<br><strong>Fecha:</strong>", format(as.POSIXct(selected_backup$modified, format="%Y-%m-%dT%H:%M:%SZ"), "%Y-%m-%d %H:%M"),
-                   "<br><strong>Tipo:</strong>", selected_backup$Tipo,
-                   "<br><br><span style='color: red;'>⚠️ Esto reemplazará todos los datos actuales.</span>")),
-        footer = tagList(
-          modalButton("Cancelar"),
-          actionButton("confirm_restore", "Restaurar", class = "btn-warning")
-        )
-      ))
-
-      # Guardar información del backup para usar en confirm_restore
-      backup_to_restore <<- selected_backup$path
-
-    }, error = function(e) {
-      output$sync_operation_status <- renderText(paste("❌ Error al preparar restauración:", e$message))
-    })
-  })
-
-  # Confirmar restauración
-  observeEvent(input$confirm_restore, {
-    removeModal()
-
-    if (!exists("backup_to_restore") || is.null(backup_to_restore)) {
-      output$sync_operation_status <- renderText("❌ Error: No se pudo identificar el backup a restaurar.")
-      return()
-    }
-
-    output$sync_operation_status <- renderText("🔄 Restaurando backup...")
-
-    tryCatch({
-      # Descargar el backup
-      response <- GET(
-        url = "https://content.dropboxapi.com/2/files/download",
-        add_headers(
-          "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
-          "Dropbox-API-Arg" = jsonlite::toJSON(list(
-            path = backup_to_restore
-          ), auto_unbox = TRUE)
-        )
-      )
-
-      if (response$status_code == 200) {
-        # Crear archivo temporal
-        temp_file <- tempfile(fileext = ".xlsx")
-        writeBin(content(response, "raw"), temp_file)
-
-        # Leer datos del backup
-        restored_data <- read_excel(temp_file)
-        unlink(temp_file)
-
-        # Validar y normalizar datos
-        required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
-                              "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
-                              "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
-                              "Observaciones")
-
-        missing_columns <- setdiff(required_columns, colnames(restored_data))
-        if (length(missing_columns) > 0) {
-          for (col in missing_columns) {
-            restored_data[[col]] <- NA
-          }
-        }
-
-        # Normalizar tipos de datos
-        date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
-                          "Fecha_Aceptado", "Fecha_Publicado")
-
-        for (col in date_columns) {
-          if (col %in% colnames(restored_data)) {
-            if (inherits(restored_data[[col]], c("POSIXct", "POSIXt", "Date"))) {
-              restored_data[[col]] <- as.character(as.Date(restored_data[[col]]))
-            }
-          }
-        }
-
-        if ("Progreso" %in% colnames(restored_data)) {
-          restored_data$Progreso <- as.numeric(restored_data$Progreso)
-        }
-
-        restored_data <- as.data.frame(restored_data[, required_columns], stringsAsFactors = FALSE)
-
-        # Actualizar datos en la aplicación
-        project_data(restored_data)
-
-        # Crear backup de los datos actuales antes de restaurar
-        current_backup_result <- save_data_to_dropbox(restored_data)
-
-        output$sync_operation_status <- renderText(
-          paste("✅ Backup restaurado exitosamente.",
-                "\n📊 Proyectos restaurados:", nrow(restored_data),
-                "\n📁 Archivo restaurado:", basename(backup_to_restore),
-                if(current_backup_result$success) paste("\n💾 Nuevo backup creado:", current_backup_result$backup_path) else "")
-        )
-
-        showNotification("Backup restaurado exitosamente", type = "message")
-
-      } else {
-        output$sync_operation_status <- renderText(paste("❌ Error al descargar backup. Código:", response$status_code))
-      }
-
-      # Limpiar variable temporal
-      backup_to_restore <<- NULL
-
-    }, error = function(e) {
-      output$sync_operation_status <- renderText(paste("❌ Error al restaurar backup:", e$message))
-      backup_to_restore <<- NULL
-    })
-  })
-
-  # EVENTO MEJORADO PARA SUBIDA DE EVIDENCIAS
   observeEvent(input$upload_btn, {
     req(input$file_upload, input$project_select, input$file_type)
 
-    if (!STORAGE_CONFIGURED) {
-      output$upload_status <- renderText("❌ Error: Configure primero el Access Token de Dropbox.")
+    if (!tokens_valid()) {
+      output$upload_status <- renderText("❌ Error: Configure primero OAuth de Dropbox.")
       return()
     }
 
@@ -1823,7 +2225,6 @@ server <- function(input, output, session) {
     output$upload_status <- renderText("📤 Subiendo archivo a Dropbox...")
 
     tryCatch({
-      # Validar inputs
       if (is.null(project_name) || project_name == "") {
         output$upload_status <- renderText("❌ Error: Seleccione un proyecto válido.")
         return()
@@ -1839,16 +2240,9 @@ server <- function(input, output, session) {
         return()
       }
 
-      # Sanitizar nombre del proyecto
       sanitized_project <- sanitize_project_name(project_name)
-      cat("Proyecto original:", project_name, "\n")
-      cat("Proyecto sanitizado:", sanitized_project, "\n")
-
-      # Construir folder path
       folder_path <- paste0("scicontrol/", sanitized_project, "/", file_type)
-      cat("Folder path:", folder_path, "\n")
 
-      # Subir archivo
       result <- upload_to_dropbox(file_info$datapath, file_info$name, folder_path)
 
       if (result$success) {
@@ -1881,16 +2275,18 @@ server <- function(input, output, session) {
     }, error = function(e) {
       error_msg <- paste("❌ Error inesperado:", e$message)
       output$upload_status <- renderText(error_msg)
-      cat("Error en upload_btn:", e$message, "\n")
       showNotification("Error inesperado al subir archivo", type = "error")
     })
   })
 
+  # ========================================================================
   # TABLA DE ARCHIVOS EN DROPBOX
+  # ========================================================================
+
   output$files_table <- renderDT({
     files_refresh()
 
-    if (input$project_view == "" || !STORAGE_CONFIGURED) {
+    if (input$project_view == "" || !tokens_valid()) {
       empty <- data.frame(Archivo = character(), Carpeta = character(), Tamaño = character(), Fecha = character())
       return(datatable(empty, options = list(pageLength = 10), rownames = FALSE, selection = "single"))
     }
@@ -1953,16 +2349,14 @@ server <- function(input, output, session) {
     })
   })
 
-  # Actualizar lista de archivos
   observeEvent(input$refresh_files, {
     files_refresh(isolate(files_refresh()) + 1)
     showNotification("Lista de archivos actualizada", type = "message")
   })
 
-  # Eliminar archivo de Dropbox
   observeEvent(input$delete_file, {
     sel <- input$files_table_rows_selected
-    if (is.null(sel) || length(sel) == 0 || !STORAGE_CONFIGURED) {
+    if (is.null(sel) || length(sel) == 0 || !tokens_valid()) {
       showModal(modalDialog(
         title = "Atención",
         "Por favor, seleccione primero un archivo de la tabla.",
@@ -2008,21 +2402,21 @@ server <- function(input, output, session) {
     })
   })
 
+  # ========================================================================
   # SELECCIÓN DE PROYECTO PARA EDITAR
+  # ========================================================================
+
   observeEvent(input$project_table_rows_selected, {
     sel <- input$project_table_rows_selected
 
     if (!is.null(sel) && length(sel) > 0) {
       data <- project_data()
 
-      # Validar que la selección sea válida
       if (sel <= nrow(data)) {
         proj <- data[sel, ]
 
-        # Actualizar campos con validación segura
         updateTextInput(session, "project_name", value = as.character(proj$Nombre %||% ""))
 
-        # Fechas con validación
         tryCatch({
           if (!is.na(proj$Fecha_Inicio) && proj$Fecha_Inicio != "") {
             updateDateInput(session, "start_date", value = as.Date(proj$Fecha_Inicio))
@@ -2073,7 +2467,6 @@ server <- function(input, output, session) {
           updateDateInput(session, "publication_date", value = NULL)
         })
 
-        # Otros campos
         updateTextInput(session, "journal", value = as.character(proj$Revista %||% ""))
         updateSelectInput(session, "quartile", selected = as.character(proj$Cuartil %||% "Q1"))
         updateSelectInput(session, "status", selected = as.character(proj$Estado %||% "Introducción"))
@@ -2084,9 +2477,11 @@ server <- function(input, output, session) {
     }
   })
 
-  # EVENTO PARA GUARDAR CAMBIOS CON DROPBOX
+  # ========================================================================
+  # EVENTO PARA GUARDAR CAMBIOS
+  # ========================================================================
+
   observeEvent(input$save_changes, {
-    # Validar entrada mínima
     if (is.null(input$project_name) || input$project_name == "") {
       showModal(modalDialog(
         title = "Error",
@@ -2100,7 +2495,6 @@ server <- function(input, output, session) {
     data <- project_data()
     idx <- which(data$Nombre == input$project_name)
 
-    # Preparar fechas como character de manera consistente
     fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
     fecha_envio <- if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado") && !is.null(input$send_date)) {
       as.character(input$send_date)
@@ -2125,7 +2519,6 @@ server <- function(input, output, session) {
 
     prog <- progress_map[[input$status]]
 
-    # Crear nueva fila con tipos consistentes
     new_row <- data.frame(
       Nombre = as.character(input$project_name),
       Fecha_Inicio = fecha_inicio,
@@ -2143,7 +2536,6 @@ server <- function(input, output, session) {
       stringsAsFactors = FALSE
     )
 
-    # Validación de fechas antes de guardar
     alertas_validacion <- c()
 
     if (!is.na(fecha_inicio) && !is.na(fecha_envio)) {
@@ -2183,7 +2575,6 @@ server <- function(input, output, session) {
         data <- rbind(data, new_row)
       }
 
-      # *** CAMBIO PRINCIPAL: Guardar en Dropbox ***
       save_result <- save_project_data(data)
 
       if (save_result$success) {
@@ -2225,7 +2616,6 @@ server <- function(input, output, session) {
     data <- project_data()
     idx <- which(data$Nombre == input$project_name)
 
-    # Preparar datos (mismo código que arriba)
     fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
     fecha_envio <- if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado") && !is.null(input$send_date)) {
       as.character(input$send_date)
@@ -2303,7 +2693,10 @@ server <- function(input, output, session) {
     })
   })
 
-  # Limpiar campos
+  # ========================================================================
+  # LIMPIAR CAMPOS
+  # ========================================================================
+
   observeEvent(input$clear_fields, {
     updateTextInput(session, "project_name", value = "")
     updateDateInput(session, "start_date", value = NULL)
@@ -2319,7 +2712,10 @@ server <- function(input, output, session) {
     updateTextAreaInput(session, "observations", value = "")
   })
 
-  # Eliminar proyecto
+  # ========================================================================
+  # ELIMINAR PROYECTO
+  # ========================================================================
+
   observeEvent(input$delete_button, {
     req(input$delete_project)
     data <- project_data()
@@ -2329,7 +2725,6 @@ server <- function(input, output, session) {
       data <- data[data$Nombre != input$delete_project,]
     }
 
-    # Guardar en Dropbox después de eliminar
     save_result <- save_project_data(data)
     project_data(data)
 
@@ -2344,7 +2739,333 @@ server <- function(input, output, session) {
     }
   })
 
-  # Descargar datos
+  # ========================================================================
+  # FUNCIONES DE SINCRONIZACIÓN
+  # ========================================================================
+
+  output$sync_status_info <- renderUI({
+    data <- project_data()
+    last_save_time <- if (file.exists(data_file)) {
+      format(
+        file.mtime(data_file),
+        tz     = "America/Lima",
+        usetz  = FALSE,
+        format = "%Y-%m-%d %H:%M:%S"
+      )
+    } else {
+      "Nunca"
+    }
+
+    div(
+      h4("📊 Estado Actual del Sistema"),
+      tags$ul(
+        tags$li(paste("💾 Proyectos en memoria:", nrow(data))),
+        tags$li(paste("🕒 Última modificación local:", last_save_time)),
+        tags$li(paste("☁️ Dropbox:", if(tokens_valid()) "✅ Conectado" else "❌ No conectado")),
+        tags$li(paste("🔄 Auto-sincronización:", if(tokens_valid()) "✅ Activa" else "❌ Inactiva"))
+      ),
+      if (!tokens_valid()) {
+        div(class = "alert alert-warning",
+            "⚠️ Configure OAuth de Dropbox para habilitar la sincronización automática y evitar pérdida de datos."
+        )
+      } else {
+        div(class = "alert alert-success",
+            "✅ Sistema configurado correctamente. Los datos se sincronizan automáticamente con Dropbox."
+        )
+      }
+    )
+  })
+
+  # Sincronización manual desde Dropbox
+  observeEvent(input$sync_from_dropbox, {
+    if (!tokens_valid()) {
+      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
+      return()
+    }
+
+    output$sync_operation_status <- renderText("🔄 Cargando datos desde Dropbox...")
+
+    tryCatch({
+      dropbox_data <- load_data_from_dropbox()
+
+      if (nrow(dropbox_data) > 0) {
+        project_data(dropbox_data)
+        output$sync_operation_status <- renderText(
+          paste("✅ Sincronización exitosa desde Dropbox.",
+                "Cargados", nrow(dropbox_data), "proyectos.")
+        )
+        showNotification("Datos sincronizados desde Dropbox", type = "message")
+      } else {
+        output$sync_operation_status <- renderText("⚠️ No se encontraron datos en Dropbox.")
+      }
+    }, error = function(e) {
+      output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", e$message))
+    })
+  })
+
+  # Sincronización manual a Dropbox
+  observeEvent(input$sync_to_dropbox, {
+    if (!tokens_valid()) {
+      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
+      return()
+    }
+
+    data <- project_data()
+    if (nrow(data) == 0) {
+      output$sync_operation_status <- renderText("⚠️ No hay datos para sincronizar.")
+      return()
+    }
+
+    output$sync_operation_status <- renderText("🔄 Subiendo datos a Dropbox...")
+
+    tryCatch({
+      save_result <- save_data_to_dropbox(data)
+
+      if (save_result$success) {
+        output$sync_operation_status <- renderText(
+          paste("✅ Sincronización exitosa a Dropbox.",
+                "Guardados", nrow(data), "proyectos.",
+                "\n📁 Archivo principal:", save_result$main_path,
+                "\n📋 Backup:", save_result$backup_path)
+        )
+        showNotification("Datos sincronizados a Dropbox", type = "message")
+      } else {
+        output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", save_result$error))
+      }
+    }, error = function(e) {
+      output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", e$message))
+    })
+  })
+
+  # Crear backup manual
+  observeEvent(input$manual_backup, {
+    if (!tokens_valid()) {
+      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
+      return()
+    }
+
+    data <- project_data()
+    if (nrow(data) == 0) {
+      output$sync_operation_status <- renderText("⚠️ No hay datos para respaldar.")
+      return()
+    }
+
+    output$sync_operation_status <- renderText("🔄 Creando backup manual...")
+
+    tryCatch({
+      timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      temp_file <- tempfile(fileext = ".xlsx")
+      writexl::write_xlsx(data, temp_file)
+
+      backup_result <- upload_to_dropbox(temp_file,
+                                         paste0("manual_backup_", timestamp, ".xlsx"),
+                                         "scicontrol/manual_backups")
+      unlink(temp_file)
+
+      if (backup_result$success) {
+        output$sync_operation_status <- renderText(
+          paste("✅ Backup manual creado exitosamente.",
+                "\n📋 Archivo:", backup_result$name,
+                "\n📁 Ubicación:", backup_result$path)
+        )
+        showNotification("Backup manual creado", type = "message")
+      } else {
+        output$sync_operation_status <- renderText(paste("❌ Error al crear backup:", backup_result$error))
+      }
+    }, error = function(e) {
+      output$sync_operation_status <- renderText(paste("❌ Error al crear backup:", e$message))
+    })
+  })
+
+  # Lista de archivos de backup
+  output$backup_files_table <- renderDT({
+    if (!tokens_valid()) {
+      empty <- data.frame(Archivo = "Dropbox no configurado", Fecha = "", Tamaño = "", Tipo = "")
+      return(datatable(empty, options = list(pageLength = 5), rownames = FALSE, selection = "single"))
+    }
+
+    tryCatch({
+      backup_files <- list_dropbox_files("scicontrol/backups")
+      manual_backups <- list_dropbox_files("scicontrol/manual_backups")
+
+      all_backups <- rbind(
+        if(nrow(backup_files) > 0) data.frame(backup_files, Tipo = "Auto") else data.frame(),
+        if(nrow(manual_backups) > 0) data.frame(manual_backups, Tipo = "Manual") else data.frame()
+      )
+
+      if (nrow(all_backups) == 0) {
+        empty <- data.frame(Archivo = "No hay backups disponibles", Fecha = "", Tamaño = "", Tipo = "")
+        return(datatable(empty, options = list(pageLength = 5), rownames = FALSE, selection = "single"))
+      }
+
+      all_backups$Tamaño <- sapply(all_backups$size, function(x) {
+        if (x < 1024) paste(x, "B")
+        else if (x < 1024^2) paste(round(x/1024, 1), "KB")
+        else paste(round(x/1024^2, 1), "MB")
+      })
+
+      all_backups$Fecha <- format(
+        as.POSIXct(all_backups$modified,
+                   format = "%Y-%m-%dT%H:%M:%SZ",
+                   tz     = "UTC"),
+        tz     = "America/Lima",
+        format = "%Y-%m-%d %H:%M")
+
+      display_backups <- all_backups[, c("name", "Fecha", "Tamaño", "Tipo")]
+      colnames(display_backups) <- c("Archivo", "Fecha", "Tamaño", "Tipo")
+
+      return(datatable(display_backups,
+                       options = list(pageLength = 10, order = list(list(1, 'desc'))),
+                       rownames = FALSE,
+                       selection = "single"))
+    }, error = function(e) {
+      error_df <- data.frame(Archivo = paste("Error:", e$message), Fecha = "", Tamaño = "", Tipo = "")
+      return(datatable(error_df, options = list(pageLength = 5), rownames = FALSE, selection = "single"))
+    })
+  })
+
+  # Restaurar backup seleccionado
+  observeEvent(input$restore_backup, {
+    sel <- input$backup_files_table_rows_selected
+
+    if (is.null(sel) || length(sel) == 0) {
+      showModal(modalDialog(
+        title = "Atención",
+        "Por favor, seleccione primero un archivo de backup de la tabla.",
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+      return()
+    }
+
+    if (!tokens_valid()) {
+      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
+      return()
+    }
+
+    tryCatch({
+      backup_files <- list_dropbox_files("scicontrol/backups")
+      manual_backups <- list_dropbox_files("scicontrol/manual_backups")
+
+      all_backups <- rbind(
+        if(nrow(backup_files) > 0) data.frame(backup_files, Tipo = "Auto") else data.frame(),
+        if(nrow(manual_backups) > 0) data.frame(manual_backups, Tipo = "Manual") else data.frame()
+      )
+
+      if (sel > nrow(all_backups)) {
+        output$sync_operation_status <- renderText("❌ Selección inválida.")
+        return()
+      }
+
+      selected_backup <- all_backups[sel, ]
+
+      showModal(modalDialog(
+        title = "🔄 Confirmar Restauración",
+        HTML(paste("¿Está seguro de que desea restaurar el siguiente backup?",
+                   "<br><br><strong>Archivo:</strong>", selected_backup$name,
+                   "<br><strong>Fecha:</strong>", format(as.POSIXct(selected_backup$modified, format="%Y-%m-%dT%H:%M:%SZ"), "%Y-%m-%d %H:%M"),
+                   "<br><strong>Tipo:</strong>", selected_backup$Tipo,
+                   "<br><br><span style='color: red;'>⚠️ Esto reemplazará todos los datos actuales.</span>")),
+        footer = tagList(
+          modalButton("Cancelar"),
+          actionButton("confirm_restore", "Restaurar", class = "btn-warning")
+        )
+      ))
+
+      backup_to_restore <<- selected_backup$path
+
+    }, error = function(e) {
+      output$sync_operation_status <- renderText(paste("❌ Error al preparar restauración:", e$message))
+    })
+  })
+
+  # Confirmar restauración
+  observeEvent(input$confirm_restore, {
+    removeModal()
+
+    if (!exists("backup_to_restore") || is.null(backup_to_restore)) {
+      output$sync_operation_status <- renderText("❌ Error: No se pudo identificar el backup a restaurar.")
+      return()
+    }
+
+    output$sync_operation_status <- renderText("🔄 Restaurando backup...")
+
+    tryCatch({
+      response <- GET(
+        url = "https://content.dropboxapi.com/2/files/download",
+        add_headers(
+          "Authorization" = paste("Bearer", get_dropbox_token()),
+          "Dropbox-API-Arg" = jsonlite::toJSON(list(
+            path = backup_to_restore
+          ), auto_unbox = TRUE)
+        )
+      )
+
+      if (response$status_code == 200) {
+        temp_file <- tempfile(fileext = ".xlsx")
+        writeBin(content(response, "raw"), temp_file)
+
+        restored_data <- read_excel(temp_file)
+        unlink(temp_file)
+
+        required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
+                              "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
+                              "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
+                              "Observaciones")
+
+        missing_columns <- setdiff(required_columns, colnames(restored_data))
+        if (length(missing_columns) > 0) {
+          for (col in missing_columns) {
+            restored_data[[col]] <- NA
+          }
+        }
+
+        date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
+                          "Fecha_Aceptado", "Fecha_Publicado")
+
+        for (col in date_columns) {
+          if (col %in% colnames(restored_data)) {
+            if (inherits(restored_data[[col]], c("POSIXct", "POSIXt", "Date"))) {
+              restored_data[[col]] <- as.character(as.Date(restored_data[[col]]))
+            }
+          }
+        }
+
+        if ("Progreso" %in% colnames(restored_data)) {
+          restored_data$Progreso <- as.numeric(restored_data$Progreso)
+        }
+
+        restored_data <- as.data.frame(restored_data[, required_columns], stringsAsFactors = FALSE)
+
+        project_data(restored_data)
+
+        current_backup_result <- save_data_to_dropbox(restored_data)
+
+        output$sync_operation_status <- renderText(
+          paste("✅ Backup restaurado exitosamente.",
+                "\n📊 Proyectos restaurados:", nrow(restored_data),
+                "\n📁 Archivo restaurado:", basename(backup_to_restore),
+                if(current_backup_result$success) paste("\n💾 Nuevo backup creado:", current_backup_result$backup_path) else "")
+        )
+
+        showNotification("Backup restaurado exitosamente", type = "message")
+
+      } else {
+        output$sync_operation_status <- renderText(paste("❌ Error al descargar backup. Código:", response$status_code))
+      }
+
+      backup_to_restore <<- NULL
+
+    }, error = function(e) {
+      output$sync_operation_status <- renderText(paste("❌ Error al restaurar backup:", e$message))
+      backup_to_restore <<- NULL
+    })
+  })
+
+  # ========================================================================
+  # DESCARGAR DATOS
+  # ========================================================================
+
   output$download_data <- downloadHandler(
     filename = function() paste0("scicontrol_datos_", Sys.Date(), ".xlsx"),
     content = function(file) {
@@ -2369,7 +3090,10 @@ server <- function(input, output, session) {
     }
   )
 
-  # EVENTO PARA IMPORTAR EXCEL CON DROPBOX
+  # ========================================================================
+  # IMPORTAR DATOS DESDE EXCEL
+  # ========================================================================
+
   observeEvent(input$import_excel_btn, {
     req(input$excel_upload)
 
@@ -2406,7 +3130,6 @@ server <- function(input, output, session) {
         return()
       }
 
-      # Agregar columnas faltantes
       missing_columns <- setdiff(required_columns, colnames(imported_data))
       if (length(missing_columns) > 0) {
         for (col in missing_columns) {
@@ -2414,7 +3137,6 @@ server <- function(input, output, session) {
         }
       }
 
-      # NORMALIZAR TIPOS DE DATOS DESPUÉS DE IMPORTAR
       date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                         "Fecha_Aceptado", "Fecha_Publicado")
 
@@ -2435,15 +3157,12 @@ server <- function(input, output, session) {
         }
       }
 
-      # Asegurar otros tipos
       if ("Progreso" %in% colnames(imported_data)) {
         imported_data$Progreso <- as.numeric(imported_data$Progreso)
       }
 
-      # Convertir a data.frame estándar
       imported_data <- as.data.frame(imported_data[, required_columns], stringsAsFactors = FALSE)
 
-      # *** CAMBIO PRINCIPAL: Guardar en Dropbox ***
       save_result <- save_project_data(imported_data)
 
       if (save_result$success) {
@@ -2486,5 +3205,24 @@ server <- function(input, output, session) {
   })
 }
 
-# Ejecutar la aplicación
+# ============================================================================
+# EJECUTAR LA APLICACIÓN
+# ============================================================================
+
+# Al cargar la aplicación, inicializar OAuth automáticamente
+initialize_dropbox_oauth()
+
+# ============================================================================
+# MODO DESARROLLADOR - INSTRUCCIONES
+# ============================================================================
+# Para acceder al modo desarrollador:
+# 1. Hacer doble clic en "SciControl" en el header
+# 2. Ingresar contraseña: "scicontrol2025"
+# 3. Acceder a las configuraciones OAuth avanzadas
+#
+# Para cambiar la contraseña de desarrollador:
+# - Modificar la variable DEVELOPER_PASSWORD al inicio del código
+# ============================================================================
+
+# Ejecutar la aplicación Shiny
 shinyApp(ui = ui, server = server)
