@@ -83,10 +83,9 @@ capture_authorization_code <- function() {
 
       query_string <- req$QUERY_STRING
       if (!is.null(query_string) && grepl("code=", query_string)) {
-        params <- strsplit(query_string, "&")[[1]]
-        code_param <- params[grep("code=", params)]
-        if (length(code_param) > 0) {
-          auth_code <<- gsub("code=", "", code_param[1])
+        params <- shiny::parseQueryString(sub("^\\?", "", query_string))
+        if (!is.null(params$code)) {
+          auth_code <<- params$code
           cat("✅ Código de autorización capturado:", substr(auth_code, 1, 20), "...\n")
         }
       }
@@ -158,7 +157,9 @@ capture_authorization_code <- function() {
   timeout <- 300
 
   while (is.null(auth_code) && as.numeric(difftime(Sys.time(), start_time, units = "secs")) < timeout) {
-    Sys.sleep(1)
+    # Procesar peticiones HTTP entrantes
+    httpuv::service()
+    Sys.sleep(0.25)
 
     # Mostrar progreso cada 30 segundos
     elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
@@ -412,6 +413,14 @@ start_oauth_flow <- function() {
     return(FALSE)
   })
 
+  return(FALSE)
+}
+
+auto_manual_oauth <- function() {
+  auth_code <- capture_authorization_code()
+  if (exchange_code_for_tokens(auth_code)) {
+    return(TRUE)
+  }
   return(FALSE)
 }
 
@@ -1395,6 +1404,26 @@ server <- function(input, output, session) {
     }
   })
 
+  # Refrescar token automáticamente de forma periódica
+  observe({
+    invalidateLater(5 * 60 * 1000, session)  # cada 5 minutos
+    if (tokens_valid()) {
+      if (!is.null(TOKEN_EXPIRY_TIME) &&
+          difftime(TOKEN_EXPIRY_TIME, Sys.time(), units = "secs") < 600) {
+        prev_expiry <- TOKEN_EXPIRY_TIME
+        success <- refresh_dropbox_access_token()
+        tokens_valid(success)
+        if (success && !is.null(prev_expiry) && TOKEN_EXPIRY_TIME > prev_expiry) {
+          showNotification("🔄 Token de Dropbox renovado automáticamente.",
+                           type = "message")
+        } else if (!success) {
+          showNotification("❌ Error al refrescar token. Reautoriza.",
+                           type = "error")
+        }
+      }
+    }
+  })
+
   # Datos mejorados con validación
   days_data_improved <- reactive({
     data <- project_data()
@@ -1665,7 +1694,7 @@ server <- function(input, output, session) {
     cat("==================\n\n")
 
     tryCatch({
-      result <- start_oauth_flow()
+      result <- auto_manual_oauth()
       if (result) {
         tokens_valid(TRUE)
         output$oauth_operation_status <- renderText("✅ Autorización OAuth completada exitosamente.")
