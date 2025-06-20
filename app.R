@@ -266,7 +266,7 @@ auto_refresh_tokens <- function() {
 
   time_until_expiry <- difftime(TOKEN_EXPIRY_TIME, Sys.time(), units = "mins")
 
-  if (time_until_expiry < 15) {
+  if (time_until_expiry < 30) {
     cat("🔄 Auto-renovando token (expira en", round(time_until_expiry, 1), "minutos)\n")
 
     success <- refresh_dropbox_access_token()
