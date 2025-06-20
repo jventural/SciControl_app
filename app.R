@@ -1,5 +1,5 @@
-# APLICACIÓN SHINY SCICONTROL COMPLETA CON OAUTH 2.0
-# ===================================================
+# APLICACIÓN SHINY SCICONTROL COMPLETA CON OAUTH 2.0 PARA POSIT CLOUD
+# ====================================================================
 
 # Cargar librerías necesarias
 library(shiny)
@@ -17,7 +17,6 @@ library(base64enc)
 library(ggplot2)
 library(plotly)
 library(dplyr)
-library(httpuv)
 
 # Configurar zona horaria
 Sys.setenv(TZ = "America/Lima")
@@ -26,38 +25,57 @@ Sys.setenv(TZ = "America/Lima")
 # CONFIGURACIÓN DE MODO DESARROLLADOR
 # ============================================================================
 
-# Contraseña para acceso de desarrollador (puedes cambiarla)
 DEVELOPER_PASSWORD <- "scicontrol2025"
-
-# Variable para controlar el acceso de desarrollador (se reinicia con la app)
 developer_authenticated <- FALSE
-
-# Operador auxiliar
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 # ============================================================================
-# CONFIGURACIÓN OAUTH 2.0 PARA DROPBOX
+# DETECCIÓN DE ENTORNO Y CONFIGURACIÓN OAUTH DINÁMICA
 # ============================================================================
 
-# Configuración de la aplicación Dropbox (tus credenciales reales)
-DROPBOX_APP_KEY <- "u345780r1sjewxw"
-DROPBOX_APP_SECRET <- "u2l2isg4nophe34"  # Corregido: era "j21215g4nophe34"
-DROPBOX_REDIRECT_URI <- "http://localhost:1410/"
+# Función para detectar si estamos en Posit Cloud
+is_posit_cloud <- function() {
+  posit_indicators <- c(
+    "RSTUDIO_HTTP_REFERER",
+    "RSTUDIO_SESSION_URL",
+    "POSIT_CLOUD",
+    "SHINY_SERVER_VERSION",
+    "CONNECT_SERVER"
+  )
+  any(sapply(posit_indicators, function(x) Sys.getenv(x) != ""))
+}
+
+# Configuración OAuth dinámica
+setup_dynamic_oauth_config <- function() {
+  # Credenciales OAuth (mantener las mismas)
+  DROPBOX_APP_KEY <<- "u345780r1sjewxw"
+  DROPBOX_APP_SECRET <<- "u2l2isg4nophe34"
+
+  if (is_posit_cloud()) {
+    DROPBOX_REDIRECT_URI <<- "https://posit.cloud/oauth/callback"
+    cat("🌐 Entorno: Posit Cloud\n")
+  } else {
+    DROPBOX_REDIRECT_URI <<- "http://localhost:1410/"
+    cat("💻 Entorno: Local\n")
+  }
+  cat("📍 Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
+}
 
 # Variables globales para tokens
 DROPBOX_ACCESS_TOKEN <- ""
 DROPBOX_REFRESH_TOKEN <- ""
 TOKEN_EXPIRY_TIME <- NULL
 
-# Función para generar URL de autorización
+# ============================================================================
+# FUNCIONES OAUTH MEJORADAS PARA POSIT CLOUD
+# ============================================================================
+
+# Generar URL de autorización
 generate_auth_url <- function() {
   base_url <- "https://www.dropbox.com/oauth2/authorize"
-
-  # Codificar cada parámetro individualmente
   client_id_encoded <- URLencode(DROPBOX_APP_KEY, reserved = TRUE)
   redirect_uri_encoded <- URLencode(DROPBOX_REDIRECT_URI, reserved = TRUE)
 
-  # Construir URL manualmente para evitar problemas de encoding
   auth_url <- paste0(
     base_url,
     "?client_id=", client_id_encoded,
@@ -66,129 +84,14 @@ generate_auth_url <- function() {
     "&token_access_type=offline"
   )
 
-  cat("🔗 URL de autorización generada:", auth_url, "\n")
   return(auth_url)
 }
 
-# Función para iniciar servidor temporal y capturar código
-capture_authorization_code <- function() {
-  auth_code <- NULL
-
-  app <- list(
-    call = function(req) {
-      cat("📥 Request recibida en servidor local:\n")
-      cat("  - Path:", req$PATH_INFO, "\n")
-      cat("  - Query:", req$QUERY_STRING, "\n")
-      cat("  - Method:", req$REQUEST_METHOD, "\n")
-
-      query_string <- req$QUERY_STRING
-      if (!is.null(query_string) && grepl("code=", query_string)) {
-        params <- shiny::parseQueryString(sub("^\\?", "", query_string))
-        if (!is.null(params$code)) {
-          auth_code <<- params$code
-          cat("✅ Código de autorización capturado:", substr(auth_code, 1, 20), "...\n")
-        }
-      }
-
-      if (!is.null(auth_code)) {
-        response_body <- "<html><head><title>Autorización Exitosa</title></head><body style='font-family: Arial, sans-serif; text-align: center; margin: 50px;'><h1 style='color: green;'>¡Autorización Exitosa!</h1><p>El código ha sido capturado correctamente.</p><p><strong>Puedes cerrar esta ventana y volver a tu aplicación Shiny.</strong></p><script>setTimeout(function(){window.close();}, 3000);</script></body></html>"
-        status <- 200L
-      } else {
-        response_body <- "<html><head><title>Esperando Autorización</title></head><body style='font-family: Arial, sans-serif; text-align: center; margin: 50px;'><h1 style='color: orange;'>Esperando Autorización...</h1><p>Si ves esta página, el servidor está funcionando.</p><p>Regresa a Dropbox y completa la autorización.</p></body></html>"
-        status <- 200L
-      }
-
-      list(
-        status = status,
-        headers = list(
-          'Content-Type' = 'text/html',
-          'Access-Control-Allow-Origin' = '*',
-          'Access-Control-Allow-Methods' = 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers' = 'Content-Type'
-        ),
-        body = response_body
-      )
-    }
-  )
-
-  # Intentar varios puertos si 1410 está ocupado
-  ports_to_try <- c(1410, 1411, 1412, 1413, 1414)
-  server <- NULL
-  port_used <- NULL
-
-  for (port in ports_to_try) {
-    tryCatch({
-      server <- startServer("127.0.0.1", port, app)
-      port_used <- port
-      cat("✅ Servidor HTTP iniciado en puerto:", port, "\n")
-      cat("🌐 Servidor accesible en: http://localhost:", port, "/\n")
-      break
-    }, error = function(e) {
-      cat("⚠️ Puerto", port, "ocupado:", e$message, "\n")
-    })
-  }
-
-  if (is.null(server)) {
-    stop("❌ No se pudo iniciar servidor en ningún puerto (1410-1414)")
-  }
-
-  on.exit(stopServer(server), add = TRUE)
-
-  # Actualizar redirect URI si usamos un puerto diferente
-  if (port_used != 1410) {
-    DROPBOX_REDIRECT_URI <<- paste0("http://localhost:", port_used, "/")
-    cat("🔄 Redirect URI actualizado a:", DROPBOX_REDIRECT_URI, "\n")
-  }
-
-  auth_url <- generate_auth_url()
-  browseURL(auth_url)
-
-  cat("\n=== INSTRUCCIONES PARA EL USUARIO ===\n")
-  cat("🌐 Se abrió el navegador con la página de autorización de Dropbox.\n")
-  cat("📋 Pasos a seguir:\n")
-  cat("  1. En la página de Dropbox, haz clic en 'Permitir'\n")
-  cat("  2. Deberías ser redirigido a: http://localhost:", port_used, "/\n")
-  cat("  3. Si no funciona automáticamente, mira la URL del navegador después del clic\n")
-  cat("  4. Busca '?code=' en la URL y copia el código que aparece después\n")
-  cat("=====================================\n\n")
-  cat("⏳ Esperando código de autorización... (máximo 5 minutos)\n")
-
-  start_time <- Sys.time()
-  timeout <- 300
-
-  while (is.null(auth_code) && as.numeric(difftime(Sys.time(), start_time, units = "secs")) < timeout) {
-    # Procesar peticiones HTTP entrantes
-    httpuv::service()
-    Sys.sleep(0.25)
-
-    # Mostrar progreso cada 30 segundos
-    elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
-    if (elapsed %% 30 == 0) {
-      cat("⏳ Esperando... (", round(elapsed), " segundos transcurridos)\n")
-    }
-  }
-
-  if (is.null(auth_code)) {
-    cat("\n❌ TIMEOUT: No se recibió el código automáticamente.\n")
-    cat("🔧 SOLUCIÓN MANUAL:\n")
-    cat("1. Revisa si en tu navegador hay una URL que empiece con:\n")
-    cat("   http://localhost:", port_used, "/?code=\n")
-    cat("2. Si la hay, copia todo el texto que aparece después de 'code=' y antes de '&' (si lo hay)\n")
-    cat("3. Usa la función manual que agregaré a la interfaz\n\n")
-
-    stop("Manual intervention required - see instructions above")
-  }
-
-  return(auth_code)
-}
-
-# Función para intercambiar código por tokens
+# Intercambiar código por tokens
 exchange_code_for_tokens <- function(auth_code) {
   cat("🔄 Intercambiando código por tokens...\n")
-  cat("📝 Código recibido:", substr(auth_code, 1, 20), "...\n")
 
   tryCatch({
-    # Preparar datos para el POST
     post_data <- list(
       code = auth_code,
       grant_type = "authorization_code",
@@ -197,64 +100,33 @@ exchange_code_for_tokens <- function(auth_code) {
       redirect_uri = DROPBOX_REDIRECT_URI
     )
 
-    cat("📤 Enviando request a Dropbox...\n")
-    cat("🔧 Client ID:", DROPBOX_APP_KEY, "\n")
-    cat("🔧 Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
-
     response <- httr::POST(
       url = "https://api.dropboxapi.com/oauth2/token",
       body = post_data,
       encode = "form",
-      httr::timeout(30)  # 30 segundos timeout
+      httr::timeout(30)
     )
-
-    cat("📥 Response status:", response$status_code, "\n")
 
     if (response$status_code == 200) {
       token_data <- httr::content(response, as = "parsed")
 
-      cat("✅ Tokens obtenidos exitosamente\n")
-      cat("🔑 Access token:", substr(token_data$access_token, 1, 20), "...\n")
-      cat("🔄 Refresh token:", substr(token_data$refresh_token, 1, 20), "...\n")
-      cat("⏰ Expira en:", token_data$expires_in, "segundos\n")
-
-      # Guardar tokens globalmente
       DROPBOX_ACCESS_TOKEN <<- token_data$access_token
       DROPBOX_REFRESH_TOKEN <<- token_data$refresh_token
       TOKEN_EXPIRY_TIME <<- Sys.time() + as.difftime(token_data$expires_in, units = "secs")
 
-      # Guardar tokens en archivo para persistencia
+      # Guardar tokens
       tokens <- list(
         access_token = DROPBOX_ACCESS_TOKEN,
         refresh_token = DROPBOX_REFRESH_TOKEN,
         expires_at = as.character(TOKEN_EXPIRY_TIME)
       )
 
-      saveRDS(tokens, "dropbox_tokens.rds")
-
-      cat("💾 Tokens guardados en archivo\n")
+      save_tokens_persistent(tokens)
       cat("✅ OAuth completado exitosamente\n")
-
       return(TRUE)
     } else {
       error_content <- httr::content(response, "text")
       cat("❌ Error HTTP", response$status_code, "\n")
-      cat("📄 Respuesta:", error_content, "\n")
-
-      # Diagnóstico de errores comunes
-      if (response$status_code == 400) {
-        if (grepl("invalid_grant", error_content)) {
-          cat("🔍 Diagnóstico: El código de autorización puede haber expirado o ya fue usado\n")
-          cat("💡 Solución: Intenta obtener un nuevo código de autorización\n")
-        } else if (grepl("invalid_client", error_content)) {
-          cat("🔍 Diagnóstico: App Key o App Secret incorrectos\n")
-          cat("💡 Solución: Verifica las credenciales en la configuración de Dropbox\n")
-        } else if (grepl("redirect_uri_mismatch", error_content)) {
-          cat("🔍 Diagnóstico: Redirect URI no coincide con la configuración de Dropbox\n")
-          cat("💡 Solución: Verifica que", DROPBOX_REDIRECT_URI, "esté configurado en tu app\n")
-        }
-      }
-
       stop("Error al obtener tokens: ", error_content)
     }
   }, error = function(e) {
@@ -263,26 +135,7 @@ exchange_code_for_tokens <- function(auth_code) {
   })
 }
 
-# Función para cargar tokens guardados
-load_saved_tokens <- function() {
-  if (file.exists("dropbox_tokens.rds")) {
-    tryCatch({
-      tokens <- readRDS("dropbox_tokens.rds")
-      DROPBOX_ACCESS_TOKEN <<- tokens$access_token
-      DROPBOX_REFRESH_TOKEN <<- tokens$refresh_token
-      TOKEN_EXPIRY_TIME <<- as.POSIXct(tokens$expires_at)
-
-      cat("Tokens cargados desde archivo.\n")
-      return(TRUE)
-    }, error = function(e) {
-      cat("Error al cargar tokens:", e$message, "\n")
-      return(FALSE)
-    })
-  }
-  return(FALSE)
-}
-
-# Función para refrescar access token
+# Refrescar access token
 refresh_dropbox_access_token <- function() {
   if (DROPBOX_REFRESH_TOKEN == "") {
     cat("No hay refresh token disponible.\n")
@@ -311,37 +164,141 @@ refresh_dropbox_access_token <- function() {
         refresh_token = DROPBOX_REFRESH_TOKEN,
         expires_at = as.character(TOKEN_EXPIRY_TIME)
       )
-      saveRDS(tokens, "dropbox_tokens.rds")
+      save_tokens_persistent(tokens)
 
-      cat("Access token refrescado exitosamente.\n")
+      cat("✅ Access token refrescado exitosamente.\n")
       return(TRUE)
     } else {
       error_content <- httr::content(response, "text")
-      cat("Error al refrescar token:", error_content, "\n")
+      cat("❌ Error al refrescar token:", error_content, "\n")
       return(FALSE)
     }
   }, error = function(e) {
-    cat("Error al refrescar token:", e$message, "\n")
+    cat("❌ Error al refrescar token:", e$message, "\n")
     return(FALSE)
   })
 }
 
-# Función principal para obtener token válido
+# ============================================================================
+# PERSISTENCIA MEJORADA DE TOKENS
+# ============================================================================
+
+save_tokens_persistent <- function(tokens) {
+  save_locations <- c(
+    "data/dropbox_tokens.rds",
+    "dropbox_tokens.rds"
+  )
+
+  success_count <- 0
+
+  for (location in save_locations) {
+    tryCatch({
+      dir.create(dirname(location), recursive = TRUE, showWarnings = FALSE)
+      saveRDS(tokens, location)
+      success_count <- success_count + 1
+      cat("✅ Tokens guardados en:", location, "\n")
+    }, error = function(e) {
+      cat("⚠️ Error guardando en", location, ":", e$message, "\n")
+    })
+  }
+
+  # Backup en variables de entorno
+  tryCatch({
+    Sys.setenv(
+      DROPBOX_ACCESS_TOKEN_BACKUP = tokens$access_token,
+      DROPBOX_REFRESH_TOKEN_BACKUP = tokens$refresh_token
+    )
+  }, error = function(e) {
+    cat("⚠️ Error en variables de entorno:", e$message, "\n")
+  })
+
+  return(success_count > 0)
+}
+
+load_tokens_persistent <- function() {
+  search_locations <- c(
+    "data/dropbox_tokens.rds",
+    "dropbox_tokens.rds"
+  )
+
+  for (location in search_locations) {
+    if (file.exists(location)) {
+      tryCatch({
+        tokens <- readRDS(location)
+
+        if (is.list(tokens) &&
+            "access_token" %in% names(tokens) &&
+            "refresh_token" %in% names(tokens)) {
+
+          DROPBOX_ACCESS_TOKEN <<- tokens$access_token
+          DROPBOX_REFRESH_TOKEN <<- tokens$refresh_token
+
+          if ("expires_at" %in% names(tokens)) {
+            TOKEN_EXPIRY_TIME <<- as.POSIXct(tokens$expires_at)
+          }
+
+          cat("✅ Tokens cargados desde:", location, "\n")
+          return(TRUE)
+        }
+      }, error = function(e) {
+        cat("⚠️ Error cargando tokens desde", location, ":", e$message, "\n")
+      })
+    }
+  }
+
+  # Fallback desde variables de entorno
+  if (Sys.getenv("DROPBOX_ACCESS_TOKEN_BACKUP") != "") {
+    DROPBOX_ACCESS_TOKEN <<- Sys.getenv("DROPBOX_ACCESS_TOKEN_BACKUP")
+    DROPBOX_REFRESH_TOKEN <<- Sys.getenv("DROPBOX_REFRESH_TOKEN_BACKUP")
+    cat("✅ Tokens cargados desde variables de entorno\n")
+    return(TRUE)
+  }
+
+  cat("❌ No se encontraron tokens guardados\n")
+  return(FALSE)
+}
+
+# Renovación automática mejorada
+auto_refresh_tokens <- function() {
+  if (DROPBOX_ACCESS_TOKEN == "" || is.null(TOKEN_EXPIRY_TIME)) {
+    return(FALSE)
+  }
+
+  time_until_expiry <- difftime(TOKEN_EXPIRY_TIME, Sys.time(), units = "mins")
+
+  if (time_until_expiry < 15) {
+    cat("🔄 Auto-renovando token (expira en", round(time_until_expiry, 1), "minutos)\n")
+
+    success <- refresh_dropbox_access_token()
+
+    if (success) {
+      cat("✅ Token renovado automáticamente\n")
+      return(TRUE)
+    } else {
+      cat("❌ Error en renovación automática\n")
+      DROPBOX_ACCESS_TOKEN <<- ""
+      return(FALSE)
+    }
+  }
+
+  return(TRUE)
+}
+
+# Obtener token válido
 get_dropbox_token <- function() {
   if (DROPBOX_ACCESS_TOKEN == "") {
-    load_saved_tokens()
+    load_tokens_persistent()
   }
 
   if (!is.null(TOKEN_EXPIRY_TIME) &&
       TOKEN_EXPIRY_TIME - Sys.time() < as.difftime(10, units = "mins")) {
-    cat("Token próximo a expirar, refrescando...\n")
-    refresh_dropbox_access_token()
+    auto_refresh_tokens()
   }
 
   return(DROPBOX_ACCESS_TOKEN)
 }
 
-# Función para verificar configuración OAuth
+# Verificar configuración OAuth
 check_dropbox_config <- function() {
   config_ok <- DROPBOX_APP_KEY != "" && DROPBOX_APP_SECRET != ""
   if (!config_ok) return(FALSE)
@@ -350,78 +307,26 @@ check_dropbox_config <- function() {
   return(token != "" && !is.null(token))
 }
 
-# Función para inicializar OAuth
-initialize_dropbox_oauth <- function() {
-  cat("Inicializando OAuth de Dropbox...\n")
+# Inicialización del sistema OAuth
+initialize_oauth_system <- function() {
+  cat("🚀 Inicializando sistema OAuth...\n")
 
-  if (load_saved_tokens()) {
-    cat("✅ Tokens existentes cargados.\n")
+  setup_dynamic_oauth_config()
+  tokens_loaded <- load_tokens_persistent()
 
-    if (is.null(TOKEN_EXPIRY_TIME) || TOKEN_EXPIRY_TIME > Sys.time()) {
-      cat("✅ Token válido hasta:", format(TOKEN_EXPIRY_TIME), "\n")
+  if (tokens_loaded) {
+    cat("✅ Tokens encontrados, verificando validez...\n")
+    if (auto_refresh_tokens()) {
+      cat("✅ Sistema OAuth listo\n")
       return(TRUE)
     } else {
-      cat("⚠️ Token expirado, intentando refrescar...\n")
-      if (refresh_dropbox_access_token()) {
-        cat("✅ Token refrescado exitosamente.\n")
-        return(TRUE)
-      }
+      cat("⚠️ Tokens inválidos, se requiere reautorización\n")
+      return(FALSE)
     }
-  }
-
-  cat("❌ No hay tokens válidos. Ejecutar autorización OAuth.\n")
-  return(FALSE)
-}
-
-# Función para iniciar flujo OAuth completo
-start_oauth_flow <- function() {
-  cat("=== INICIANDO FLUJO OAUTH DE DROPBOX ===\n")
-  cat("🔧 App Key:", DROPBOX_APP_KEY, "\n")
-  cat("🔧 Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
-
-  # Verificar configuración
-  if (DROPBOX_APP_KEY == "" || DROPBOX_APP_SECRET == "") {
-    cat("❌ Error: App Key o App Secret vacíos\n")
+  } else {
+    cat("ℹ️ No se encontraron tokens, se requiere autorización inicial\n")
     return(FALSE)
   }
-
-  if (nchar(DROPBOX_APP_KEY) < 10 || nchar(DROPBOX_APP_SECRET) < 10) {
-    cat("❌ Error: App Key o App Secret muy cortos\n")
-    return(FALSE)
-  }
-
-  tryCatch({
-    # Paso 1: Capturar código de autorización
-    cat("📱 Abriendo navegador para autorización...\n")
-    auth_code <- capture_authorization_code()
-    cat("✅ Código de autorización obtenido:", substr(auth_code, 1, 10), "...\n")
-
-    # Paso 2: Intercambiar código por tokens
-    if (exchange_code_for_tokens(auth_code)) {
-      cat("✅ Flujo OAuth completado exitosamente.\n")
-      return(TRUE)
-    }
-  }, error = function(e) {
-    cat("❌ Error en flujo OAuth:", e$message, "\n")
-
-    # Si es un timeout, sugerir método manual
-    if (grepl("Manual intervention required", e$message)) {
-      cat("\n🔧 SUGERENCIA: Usa el botón 'Autorización Manual' en la interfaz.\n")
-      cat("📋 Esto te permitirá copiar/pegar el código manualmente.\n")
-    }
-
-    return(FALSE)
-  })
-
-  return(FALSE)
-}
-
-auto_manual_oauth <- function() {
-  auth_code <- capture_authorization_code()
-  if (exchange_code_for_tokens(auth_code)) {
-    return(TRUE)
-  }
-  return(FALSE)
 }
 
 # ============================================================================
@@ -435,8 +340,6 @@ sanitize_project_name <- function(project_name) {
 
   name <- as.character(project_name)
   name <- iconv(name, to = "ASCII//TRANSLIT")
-
-  # Reemplazar caracteres problemáticos
   name <- gsub("[<>:\"|\\?\\*\\\\/<>\\[\\]\\{\\}\\(\\)@#\\$%\\^&\\+=;',~`]", "_", name)
   name <- gsub("\\s", "_", name)
   name <- gsub("\\.", "_", name)
@@ -986,10 +889,7 @@ ui <- dashboardPage(
     useShinyjs(),
     sidebarMenu(
       id = "sidebar_menu",
-      # Agregar Proyecto debe ser el PRIMER elemento para que se abra por defecto
       menuItem("Agregar Proyecto", tabName = "agregar", icon = icon("plus")),
-
-      # Resto de pestañas normales
       menuItem("Ver Proyectos", tabName = "ver", icon = icon("table")),
       menuItem("Análisis de Tiempos", tabName = "dias", icon = icon("clock")),
       menuItem("Dashboard Visual", tabName = "dashboard", icon = icon("chart-line")),
@@ -1039,7 +939,6 @@ ui <- dashboardPage(
     .progress-bar-container { background-color: #f3f3f3; border-radius: 5px; overflow: hidden; }
     .progress-bar { background-color: #e74c3c; color: white; text-align: center; padding: 5px 0; transition: width 0.3s ease; }
 
-    /* Estilos para el título clickeable */
     #app-title {
       transition: opacity 0.2s;
     }
@@ -1047,7 +946,6 @@ ui <- dashboardPage(
       opacity: 0.8;
     }
 
-    /* Estilos para el indicador de modo desarrollador */
     .developer-indicator {
       background-color: #28a745 !important;
       border-radius: 3px;
@@ -1062,7 +960,6 @@ ui <- dashboardPage(
     }
   ")),
 
-      # JavaScript para manejar doble clic en el título
       tags$script(HTML("
         $(document).ready(function() {
           $('#app-title').dblclick(function() {
@@ -1072,7 +969,7 @@ ui <- dashboardPage(
       "))
     ),
     tabItems(
-      # Tab: Agregar Proyecto (PRIMERA pestaña que se abre por defecto)
+      # Tab: Agregar Proyecto
       tabItem(tabName = "agregar",
               fluidRow(
                 box(title = "Agregar o Actualizar Proyecto", width = 12, status = "primary",
@@ -1271,7 +1168,6 @@ ui <- dashboardPage(
 
       # Tab: Configuración Dropbox (Solo visible en modo desarrollador)
       tabItem(tabName = "config",
-              # Indicador de modo desarrollador
               fluidRow(
                 box(title = "🔓 Modo Desarrollador Activo",
                     width = 12, status = "success", solidHeader = TRUE,
@@ -1299,25 +1195,33 @@ ui <- dashboardPage(
                       condition = "output.show_oauth_buttons",
                       h4("🔐 Autorización OAuth"),
 
-                      div(class = "alert alert-info",
-                          HTML("📋 <strong>Importante:</strong> Asegúrate de que tu app de Dropbox tenga configurados estos Redirect URIs:<br>
-                               • <code>http://localhost:1410/</code><br>
-                               • <code>http://localhost:1411/</code><br>
-                               • <code>http://localhost:1412/</code><br>
-                               • <code>http://localhost:1413/</code><br>
-                               • <code>http://localhost:1414/</code><br>
-                               <br>Ve a <a href='https://www.dropbox.com/developers/apps' target='_blank'>tu app en Dropbox</a> → Settings → OAuth2 redirect URIs")
+                      # Mensaje específico para Posit Cloud
+                      conditionalPanel(
+                        condition = "output.is_posit_cloud == true",
+                        div(class = "alert alert-info",
+                            HTML("🌐 <strong>Posit Cloud detectado:</strong> Se usará autorización manual.<br>
+                                 El flujo automático no está disponible en entornos cloud.")
+                        )
+                      ),
+
+                      # Mensaje para desarrollo local
+                      conditionalPanel(
+                        condition = "output.is_posit_cloud == false",
+                        div(class = "alert alert-info",
+                            HTML("💻 <strong>Entorno local detectado:</strong> Disponible tanto autorización automática como manual.<br>
+                                 Asegúrate de que tu app de Dropbox tenga configurado: <code>http://localhost:1410/</code>")
+                        )
                       ),
 
                       p("Autoriza el acceso a tu cuenta de Dropbox:"),
 
                       fluidRow(
                         column(3,
-                               actionButton("start_oauth", "🚀 Iniciar Autorización OAuth",
+                               actionButton("start_oauth", "🚀 Iniciar Autorización",
                                             class = "btn-success", style = "width: 100%;")
                         ),
                         column(3,
-                               actionButton("test_auth_url", "🔗 Probar URL de Autorización",
+                               actionButton("test_auth_url", "🔗 Probar URL",
                                             class = "btn-warning", style = "width: 100%;")
                         ),
                         column(3,
@@ -1344,10 +1248,9 @@ ui <- dashboardPage(
       )
     ),
 
-    # Usar shinyjs
     useShinyjs(),
 
-    # Modal de autenticación de desarrollador (oculto inicialmente)
+    # Modal de autenticación de desarrollador
     div(id = "developer-auth-modal", class = "modal fade", role = "dialog",
         div(class = "modal-dialog",
             div(class = "modal-content",
@@ -1377,15 +1280,14 @@ ui <- dashboardPage(
 
 server <- function(input, output, session) {
 
-  # Usar shinyjs para funciones JavaScript
   useShinyjs()
 
   # Variables reactivas
   project_data <- reactiveVal(create_initial_data_structure())
   files_refresh <- reactiveVal(0)
-  oauth_configured <- reactiveVal(TRUE)  # Siempre configurado con credenciales integradas
+  oauth_configured <- reactiveVal(TRUE)
   tokens_valid <- reactiveVal(FALSE)
-  developer_mode <- reactiveVal(FALSE)  # Modo desarrollador DESACTIVADO por defecto
+  developer_mode <- reactiveVal(FALSE)
 
   progress_map <- list(
     "Introducción" = 10, "Método" = 30, "Resultados" = 50,
@@ -1393,49 +1295,38 @@ server <- function(input, output, session) {
     "Aceptado" = 95, "Publicado" = 100
   )
 
-  # Al iniciar la aplicación, verificar configuración OAuth
-  observe({
-    tokens_ok <- initialize_dropbox_oauth()
-    tokens_valid(tokens_ok)
+  # ========================================================================
+  # INICIALIZACIÓN DEL SISTEMA
+  # ========================================================================
 
-    if (tokens_ok) {
+  # Al iniciar la aplicación
+  observe({
+    if (initialize_oauth_system()) {
+      tokens_valid(TRUE)
       initial_data <- load_project_data()
       project_data(initial_data)
+    } else {
+      tokens_valid(FALSE)
     }
   })
 
-  # Refrescar token automáticamente de forma periódica
+  # Renovación automática de tokens cada 5 minutos
   observe({
-    invalidateLater(5 * 60 * 1000, session)  # cada 5 minutos
+    invalidateLater(5 * 60 * 1000, session)
+
     if (tokens_valid()) {
-      if (!is.null(TOKEN_EXPIRY_TIME) &&
-          difftime(TOKEN_EXPIRY_TIME, Sys.time(), units = "secs") < 600) {
-        prev_expiry <- TOKEN_EXPIRY_TIME
-        success <- refresh_dropbox_access_token()
-        tokens_valid(success)
-        if (success && !is.null(prev_expiry) && TOKEN_EXPIRY_TIME > prev_expiry) {
-          showNotification("🔄 Token de Dropbox renovado automáticamente.",
-                           type = "message")
-        } else if (!success) {
-          showNotification("❌ Error al refrescar token. Reautoriza.",
-                           type = "error")
-        }
+      success <- auto_refresh_tokens()
+      if (!success) {
+        tokens_valid(FALSE)
+        showNotification("❌ Token expirado. Reautoriza en Configuración.", type = "error")
       }
     }
-  })
-
-  # Datos mejorados con validación
-  days_data_improved <- reactive({
-    data <- project_data()
-    if (nrow(data) == 0) return(data)
-    calculate_days_improved(data)
   })
 
   # ========================================================================
   # SISTEMA DE AUTENTICACIÓN DE DESARROLLADOR
   # ========================================================================
 
-  # Output para controlar visibilidad del modo desarrollador
   output$developer_mode <- reactive({
     developer_mode()
   })
@@ -1449,30 +1340,25 @@ server <- function(input, output, session) {
       developer_mode(TRUE)
       developer_authenticated <<- TRUE
 
-      # Limpiar contraseña y cerrar modal
       updateTextInput(session, "developer_password_input", value = "")
       runjs("$('#developer-auth-modal').modal('hide');")
 
       showNotification("🔓 Modo desarrollador activado", type = "message", duration = 3)
-
-      # Limpiar mensaje de error
       runjs("document.getElementById('developer_auth_message').innerHTML = '';")
 
     } else {
-      # Mostrar error
       runjs("document.getElementById('developer_auth_message').innerHTML = '❌ Contraseña incorrecta';")
       showNotification("❌ Contraseña incorrecta", type = "error", duration = 3)
     }
   })
 
-  # Salir del modo desarrollador (botón del sidebar)
+  # Salir del modo desarrollador
   observeEvent(input$exit_developer_mode, {
     developer_mode(FALSE)
     developer_authenticated <<- FALSE
     showNotification("🔒 Modo desarrollador desactivado", type = "message", duration = 3)
   })
 
-  # Salir del modo desarrollador (botón principal de la pestaña)
   observeEvent(input$exit_developer_mode_main, {
     showModal(modalDialog(
       title = "🔒 Confirmar Salida del Modo Desarrollador",
@@ -1486,42 +1372,105 @@ server <- function(input, output, session) {
     ))
   })
 
-  # Confirmar salida del modo desarrollador
   observeEvent(input$confirm_exit_developer, {
     removeModal()
     developer_mode(FALSE)
     developer_authenticated <<- FALSE
-    showNotification("🔒 Modo desarrollador desactivado. Pestaña de Configuración oculta.", type = "message", duration = 4)
+    showNotification("🔒 Modo desarrollador desactivado", type = "message", duration = 4)
   })
 
-  # Reset configuración OAuth (solo desarrolladores)
-  observeEvent(input$reset_oauth_config, {
-    if (!developer_mode()) return()
+  # ========================================================================
+  # OAUTH PARA POSIT CLOUD
+  # ========================================================================
+
+  # Detectar si estamos en Posit Cloud
+  output$is_posit_cloud <- reactive({
+    is_posit_cloud()
+  })
+  outputOptions(output, "is_posit_cloud", suspendWhenHidden = FALSE)
+
+  # Función OAuth específica para Posit Cloud
+  start_oauth_flow_cloud <- function() {
+    auth_url <- generate_auth_url()
 
     showModal(modalDialog(
-      title = "⚠️ Confirmar Reset OAuth",
-      "¿Estás seguro de que quieres eliminar toda la configuración OAuth? Esto requerirá reautorizar la aplicación.",
+      title = "🔐 Autorización OAuth para Posit Cloud",
+      HTML(paste(
+        "<div class='alert alert-info'>",
+        "<h4>📋 Instrucciones para Posit Cloud:</h4>",
+        "<ol>",
+        "<li><strong>Haz clic en el botón de abajo</strong> para abrir Dropbox en una nueva pestaña:</li>",
+        "<div style='text-align: center; margin: 15px 0;'>",
+        "<a href='", auth_url, "' target='_blank' class='btn btn-primary btn-lg'>",
+        "🚀 Autorizar en Dropbox",
+        "</a>",
+        "</div>",
+        "<li><strong>Autoriza la aplicación</strong> haciendo clic en 'Permitir'</li>",
+        "<li><strong>Copia la URL completa</strong> de la página que aparece después</li>",
+        "<li><strong>Pega la URL</strong> en el campo de abajo y haz clic en 'Procesar'</li>",
+        "</ol>",
+        "<div class='alert alert-warning'>",
+        "<strong>💡 Tip:</strong> La URL debe contener 'code=' seguido de un código largo",
+        "</div>",
+        "</div>"
+      )),
+      textAreaInput("oauth_callback_url",
+                    "Pega aquí la URL completa después de autorizar:",
+                    placeholder = "https://posit.cloud/oauth/callback?code=ABC123...",
+                    rows = 3,
+                    width = "100%"),
       footer = tagList(
         modalButton("Cancelar"),
-        actionButton("confirm_reset_oauth", "Sí, Reset", class = "btn-danger")
-      )
+        actionButton("process_oauth_url", "🔄 Procesar URL", class = "btn-success")
+      ),
+      size = "l",
+      easyClose = FALSE
     ))
-  })
+  }
 
-  observeEvent(input$confirm_reset_oauth, {
+  # Procesar URL de callback manual
+  observeEvent(input$process_oauth_url, {
+    req(input$oauth_callback_url)
+
+    callback_url <- trimws(input$oauth_callback_url)
+
+    if (callback_url == "" || !grepl("code=", callback_url)) {
+      showNotification("❌ URL inválida. Debe contener 'code='", type = "error")
+      return()
+    }
+
     removeModal()
 
-    # Limpiar tokens
-    DROPBOX_ACCESS_TOKEN <<- ""
-    DROPBOX_REFRESH_TOKEN <<- ""
-    TOKEN_EXPIRY_TIME <<- NULL
-    tokens_valid(FALSE)
+    tryCatch({
+      # Extraer código de la URL
+      auth_code <- gsub(".*code=([^&]+).*", "\\1", callback_url)
 
-    # Eliminar archivos de tokens
-    if (file.exists("dropbox_tokens.rds")) file.remove("dropbox_tokens.rds")
+      if (nchar(auth_code) < 10) {
+        stop("Código demasiado corto")
+      }
 
-    output$oauth_operation_status <- renderText("✅ Configuración OAuth reseteada. Reautoriza la aplicación.")
-    showNotification("OAuth configuration reset", type = "warning")
+      output$oauth_operation_status <- renderText("🔄 Procesando código de autorización...")
+
+      # Intercambiar código por tokens
+      if (exchange_code_for_tokens(auth_code)) {
+        tokens_valid(TRUE)
+
+        output$oauth_operation_status <- renderText("✅ Autorización completada exitosamente en Posit Cloud")
+        showNotification("🎉 Dropbox autorizado correctamente", type = "message")
+
+        # Cargar datos después de autorización
+        initial_data <- load_project_data()
+        project_data(initial_data)
+
+      } else {
+        output$oauth_operation_status <- renderText("❌ Error al procesar la autorización")
+        showNotification("❌ Error en la autorización", type = "error")
+      }
+
+    }, error = function(e) {
+      output$oauth_operation_status <- renderText(paste("❌ Error:", e$message))
+      showNotification("❌ Error al procesar URL", type = "error")
+    })
   })
 
   # ========================================================================
@@ -1533,7 +1482,11 @@ server <- function(input, output, session) {
       div(
         h4("⚠️ Autorización requerida"),
         div(class = "alert alert-info",
-            "ℹ️ La aplicación está configurada pero necesitas autorizar el acceso a Dropbox."
+            if (is_posit_cloud()) {
+              "ℹ️ Posit Cloud detectado. Usa 'Iniciar Autorización' para el flujo optimizado."
+            } else {
+              "ℹ️ La aplicación está configurada pero necesitas autorizar el acceso a Dropbox."
+            }
         )
       )
     } else {
@@ -1547,58 +1500,66 @@ server <- function(input, output, session) {
   })
 
   output$show_oauth_buttons <- reactive({
-    TRUE  # Siempre mostrar botones OAuth
+    TRUE
   })
   outputOptions(output, "show_oauth_buttons", suspendWhenHidden = FALSE)
 
-  # Autorización manual
-  observeEvent(input$manual_auth, {
-    # Verificar modo desarrollador
+  # Iniciar autorización OAuth
+  observeEvent(input$start_oauth, {
     if (!developer_mode()) {
       showNotification("❌ Acceso denegado", type = "error")
       return()
     }
 
-    auth_url <- generate_auth_url()
+    if (is_posit_cloud()) {
+      # Usar flujo específico para Posit Cloud
+      start_oauth_flow_cloud()
+    } else {
+      # Mantener flujo original para desarrollo local
+      output$oauth_operation_status <- renderText("🔄 Iniciando autorización OAuth... Se abrirá tu navegador.")
 
-    showModal(modalDialog(
-      title = "✍️ Autorización Manual de Dropbox",
-      HTML(paste(
-        "<h4>📋 Instrucciones paso a paso:</h4>",
-        "<ol>",
-        "<li><strong>Copia esta URL</strong> y pégala en tu navegador:</li>",
-        "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-family: monospace; font-size: 12px;'>",
-        auth_url,
-        "</div>",
-        "<li><strong>Autoriza la aplicación</strong> haciendo clic en 'Permitir'</li>",
-        "<li><strong>Copia el código</strong> de la URL que aparece después. Busca algo como:</li>",
-        "<div style='background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; font-family: monospace; font-size: 12px;'>",
-        "http://localhost:1410/?code=<strong>CODIGO_AQUI</strong>&state=...",
-        "</div>",
-        "<li><strong>Pega solo el código</strong> en el campo de abajo (la parte después de 'code=' y antes de '&')</li>",
-        "</ol>"
-      )),
-      textInput("manual_auth_code",
-                "Código de Autorización:",
-                placeholder = "Pega aquí el código que obtuviste de la URL"),
-      footer = tagList(
-        modalButton("Cancelar"),
-        actionButton("submit_manual_code", "Procesar Código", class = "btn-primary")
-      ),
-      easyClose = FALSE,
-      size = "l"
-    ))
+      tryCatch({
+        # Para desarrollo local, usar el flujo original si está disponible
+        showModal(modalDialog(
+          title = "✍️ Autorización Manual Local",
+          HTML(paste(
+            "<h4>📋 Instrucciones para desarrollo local:</h4>",
+            "<ol>",
+            "<li><strong>Copia esta URL</strong> y pégala en tu navegador:</li>",
+            "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-family: monospace; font-size: 12px;'>",
+            generate_auth_url(),
+            "</div>",
+            "<li><strong>Autoriza la aplicación</strong> haciendo clic en 'Permitir'</li>",
+            "<li><strong>Copia el código</strong> de la URL de retorno</li>",
+            "<li><strong>Pega el código</strong> en el campo de abajo</li>",
+            "</ol>"
+          )),
+          textInput("manual_auth_code_local",
+                    "Código de Autorización:",
+                    placeholder = "Pega aquí el código"),
+          footer = tagList(
+            modalButton("Cancelar"),
+            actionButton("submit_manual_code_local", "Procesar Código", class = "btn-primary")
+          ),
+          size = "l"
+        ))
 
-    # También abrir automáticamente la URL
-    browseURL(auth_url)
+        # También abrir automáticamente la URL
+        browseURL(generate_auth_url())
+
+      }, error = function(e) {
+        output$oauth_operation_status <- renderText(paste("❌ Error:", e$message))
+        showNotification("Error en autorización", type = "error")
+      })
+    }
   })
 
-  # Procesar código manual
-  observeEvent(input$submit_manual_code, {
-    req(input$manual_auth_code)
+  # Procesar código manual para desarrollo local
+  observeEvent(input$submit_manual_code_local, {
+    req(input$manual_auth_code_local)
 
-    if (nchar(trimws(input$manual_auth_code)) < 10) {
-      showNotification("El código parece demasiado corto. Verifica que hayas copiado el código completo.", type = "error")
+    if (nchar(trimws(input$manual_auth_code_local)) < 10) {
+      showNotification("El código parece demasiado corto.", type = "error")
       return()
     }
 
@@ -1607,37 +1568,31 @@ server <- function(input, output, session) {
     output$oauth_operation_status <- renderText("🔄 Procesando código de autorización manual...")
 
     tryCatch({
-      auth_code <- trimws(input$manual_auth_code)
+      auth_code <- trimws(input$manual_auth_code_local)
 
-      # Limpiar el código si viene con URL completa
       if (grepl("code=", auth_code)) {
         auth_code <- gsub(".*code=([^&]+).*", "\\1", auth_code)
       }
-
-      cat("📝 Código manual recibido:", substr(auth_code, 1, 20), "...\n")
 
       if (exchange_code_for_tokens(auth_code)) {
         tokens_valid(TRUE)
         output$oauth_operation_status <- renderText("✅ Autorización manual completada exitosamente.")
         showNotification("Dropbox autorizado correctamente", type = "message")
 
-        # Cargar datos después de la autorización
         initial_data <- load_project_data()
         project_data(initial_data)
       } else {
-        output$oauth_operation_status <- renderText("❌ Error al procesar el código de autorización.")
+        output$oauth_operation_status <- renderText("❌ Error al procesar el código.")
         showNotification("Error al procesar código", type = "error")
       }
     }, error = function(e) {
-      output$oauth_operation_status <- renderText(paste("❌ Error al procesar código:", e$message))
+      output$oauth_operation_status <- renderText(paste("❌ Error:", e$message))
       showNotification("Error en autorización manual", type = "error")
-      cat("❌ Error en autorización manual:", e$message, "\n")
     })
   })
 
   # Probar URL de autorización
   observeEvent(input$test_auth_url, {
-    # Verificar modo desarrollador
     if (!developer_mode()) {
       showNotification("❌ Acceso denegado", type = "error")
       return()
@@ -1649,79 +1604,89 @@ server <- function(input, output, session) {
       "🔗 URL de autorización generada:\n\n",
       auth_url,
       "\n\n✅ Puedes copiar esta URL y pegarla manualmente en tu navegador.",
-      "\n\n📋 Si funciona, verás la página de autorización de Dropbox.",
-      "\nSi no funciona, revisa la configuración de tu app en Dropbox."
+      "\n\n📋 Si funciona, verás la página de autorización de Dropbox."
     ))
 
-    # También abrir automáticamente
     browseURL(auth_url)
-
     showNotification("URL de autorización generada y abierta", type = "message")
   })
 
-  # Iniciar flujo OAuth
-  observeEvent(input$start_oauth, {
-    # Verificar modo desarrollador
+  # Autorización manual tradicional
+  observeEvent(input$manual_auth, {
     if (!developer_mode()) {
       showNotification("❌ Acceso denegado", type = "error")
       return()
     }
 
-    output$oauth_operation_status <- renderText("🔄 Verificando configuración...")
-
-    # Verificar configuración antes de iniciar
-    if (DROPBOX_APP_KEY == "") {
-      output$oauth_operation_status <- renderText("❌ Error: App Key no configurado")
-      return()
-    }
-
-    if (DROPBOX_APP_SECRET == "") {
-      output$oauth_operation_status <- renderText("❌ Error: App Secret no configurado")
-      return()
-    }
-
-    output$oauth_operation_status <- renderText("🔄 Iniciando autorización OAuth... Se abrirá tu navegador.")
-
-    # Mostrar información de debugging en la consola
-    cat("\n=== DEBUG INFO ===\n")
-    cat("App Key:", DROPBOX_APP_KEY, "\n")
-    cat("App Secret:", substr(DROPBOX_APP_SECRET, 1, 10), "...\n")
-    cat("Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
-
-    # Generar y mostrar URL de autorización
     auth_url <- generate_auth_url()
-    cat("URL generada:", auth_url, "\n")
-    cat("==================\n\n")
+
+    showModal(modalDialog(
+      title = "✍️ Autorización Manual",
+      HTML(paste(
+        "<h4>📋 Instrucciones paso a paso:</h4>",
+        "<ol>",
+        "<li><strong>Copia esta URL</strong> y pégala en tu navegador:</li>",
+        "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; word-break: break-all; font-family: monospace; font-size: 12px;'>",
+        auth_url,
+        "</div>",
+        "<li><strong>Autoriza la aplicación</strong> haciendo clic en 'Permitir'</li>",
+        "<li><strong>Copia el código</strong> de la URL que aparece después</li>",
+        "<li><strong>Pega solo el código</strong> en el campo de abajo</li>",
+        "</ol>"
+      )),
+      textInput("manual_auth_code",
+                "Código de Autorización:",
+                placeholder = "Pega aquí el código"),
+      footer = tagList(
+        modalButton("Cancelar"),
+        actionButton("submit_manual_code", "Procesar Código", class = "btn-primary")
+      ),
+      easyClose = FALSE,
+      size = "l"
+    ))
+
+    browseURL(auth_url)
+  })
+
+  # Procesar código manual tradicional
+  observeEvent(input$submit_manual_code, {
+    req(input$manual_auth_code)
+
+    if (nchar(trimws(input$manual_auth_code)) < 10) {
+      showNotification("El código parece demasiado corto.", type = "error")
+      return()
+    }
+
+    removeModal()
+
+    output$oauth_operation_status <- renderText("🔄 Procesando código de autorización manual...")
 
     tryCatch({
-      result <- auto_manual_oauth()
-      if (result) {
+      auth_code <- trimws(input$manual_auth_code)
+
+      if (grepl("code=", auth_code)) {
+        auth_code <- gsub(".*code=([^&]+).*", "\\1", auth_code)
+      }
+
+      if (exchange_code_for_tokens(auth_code)) {
         tokens_valid(TRUE)
-        output$oauth_operation_status <- renderText("✅ Autorización OAuth completada exitosamente.")
+        output$oauth_operation_status <- renderText("✅ Autorización manual completada exitosamente.")
         showNotification("Dropbox autorizado correctamente", type = "message")
 
-        # Cargar datos después de la autorización
         initial_data <- load_project_data()
         project_data(initial_data)
       } else {
-        output$oauth_operation_status <- renderText("❌ Error en la autorización automática. 💡 Prueba con 'Autorización Manual' para ingresar el código manualmente.")
-        showNotification("Prueba la autorización manual", type = "warning")
+        output$oauth_operation_status <- renderText("❌ Error al procesar el código.")
+        showNotification("Error al procesar código", type = "error")
       }
     }, error = function(e) {
-      if (grepl("Manual intervention required", e$message)) {
-        output$oauth_operation_status <- renderText("⚠️ La autorización automática no funcionó. 💡 Usa el botón 'Autorización Manual' para completar el proceso copiando/pegando el código.")
-        showNotification("Usa autorización manual", type = "warning")
-      } else {
-        output$oauth_operation_status <- renderText(paste("❌ Error:", e$message, "\n💡 Intenta con 'Autorización Manual'."))
-        showNotification("Error en autorización - prueba manual", type = "error")
-      }
-      cat("❌ Error capturado:", e$message, "\n")
+      output$oauth_operation_status <- renderText(paste("❌ Error:", e$message))
+      showNotification("Error en autorización manual", type = "error")
     })
   })
 
   # Refrescar token manualmente
   observeEvent(input$refresh_token, {
-    # Verificar modo desarrollador
     if (!developer_mode()) {
       showNotification("❌ Acceso denegado", type = "error")
       return()
@@ -1746,6 +1711,7 @@ server <- function(input, output, session) {
         Estado = "No autorizado",
         Token = "No disponible",
         Expira = "N/A",
+        Entorno = if(is_posit_cloud()) "Posit Cloud" else "Local",
         stringsAsFactors = FALSE
       )
     } else {
@@ -1772,6 +1738,7 @@ server <- function(input, output, session) {
         Estado = c("✅ Activo", "✅ Disponible"),
         Token = c(access_token_preview, refresh_token_preview),
         Expira = c(expiry_text, "No expira"),
+        Entorno = rep(if(is_posit_cloud()) "Posit Cloud" else "Local", 2),
         stringsAsFactors = FALSE
       )
     }
@@ -1790,12 +1757,21 @@ server <- function(input, output, session) {
       "🟡 Dropbox OAuth Inactivo"
     }
 
-    # Agregar indicador de modo desarrollador
     if (developer_mode()) {
       paste(status_text, "| 🔓 DEV")
     } else {
       status_text
     }
+  })
+
+  # ========================================================================
+  # DATOS MEJORADOS Y ANÁLISIS
+  # ========================================================================
+
+  days_data_improved <- reactive({
+    data <- project_data()
+    if (nrow(data) == 0) return(data)
+    calculate_days_improved(data)
   })
 
   # ========================================================================
@@ -2785,7 +2761,8 @@ server <- function(input, output, session) {
         tags$li(paste("💾 Proyectos en memoria:", nrow(data))),
         tags$li(paste("🕒 Última modificación local:", last_save_time)),
         tags$li(paste("☁️ Dropbox:", if(tokens_valid()) "✅ Conectado" else "❌ No conectado")),
-        tags$li(paste("🔄 Auto-sincronización:", if(tokens_valid()) "✅ Activa" else "❌ Inactiva"))
+        tags$li(paste("🔄 Auto-sincronización:", if(tokens_valid()) "✅ Activa" else "❌ Inactiva")),
+        tags$li(paste("🌐 Entorno:", if(is_posit_cloud()) "Posit Cloud" else "Local"))
       ),
       if (!tokens_valid()) {
         div(class = "alert alert-warning",
@@ -3232,32 +3209,15 @@ server <- function(input, output, session) {
 # EJECUTAR LA APLICACIÓN
 # ============================================================================
 
-# Al cargar la aplicación, inicializar OAuth automáticamente
-initialize_dropbox_oauth()
+# Al cargar la aplicación, configurar sistema OAuth
+setup_dynamic_oauth_config()
 
-# ============================================================================
-# MODO DESARROLLADOR - INSTRUCCIONES COMPLETAS
-# ============================================================================
-#
-# ACTIVAR MODO DESARROLLADOR:
-# 1. Hacer doble clic en "SciControl" en el header
-# 2. Ingresar contraseña: "scicontrol2025"
-# 3. Acceder a las configuraciones OAuth avanzadas
-#
-# SALIR DEL MODO DESARROLLADOR:
-# 1. Usar el botón "Salir" en el sidebar (método rápido)
-# 2. Usar el botón "🔒 Salir del Modo Desarrollador" en la pestaña Configuración (método seguro con confirmación)
-# 3. La pestaña de Configuración se ocultará automáticamente
-#
-# INDICADORES VISUALES:
-# - Header: Muestra "🔓 DEV" cuando está activo
-# - Sidebar: Muestra indicador verde "🔓 MODO DESARROLLADOR" con botón de salida
-# - Pestaña Configuración: Solo visible en modo desarrollador
-#
-# PERSONALIZACIÓN:
-# - Para cambiar la contraseña de desarrollador: Modificar DEVELOPER_PASSWORD
-# - Para cambiar la duración de notificaciones: Modificar el parámetro duration
-# ============================================================================
+# Mostrar información de entorno al iniciar
+cat("\n=== SCICONTROL INICIANDO ===\n")
+cat("🌐 Entorno detectado:", if(is_posit_cloud()) "Posit Cloud" else "Local", "\n")
+cat("📍 Redirect URI:", DROPBOX_REDIRECT_URI, "\n")
+cat("🔐 Credenciales OAuth: Configuradas\n")
+cat("===============================\n\n")
 
 # Ejecutar la aplicación Shiny
 shinyApp(ui = ui, server = server)
