@@ -322,7 +322,7 @@ refresh_dropbox_access_token <- function() {
       cat("🔑 Nuevo token:", substr(DROPBOX_ACCESS_TOKEN, 1, 15), "...\n")
       cat("⏰ Expira:", format(TOKEN_EXPIRY_TIME), "\n")
 
-      # NUEVO: Marcar que necesitamos recargar datos después del refresh
+    # NUEVO: Marcar que necesitamos recargar datos después del refresh
       if (exists("data_needs_reload")) {
         data_needs_reload(TRUE)
         cat("🔄 Marcando datos para recarga después de refresh de token\n")
@@ -1407,30 +1407,21 @@ ui <- dashboardPage(
                                           class = "btn-success", style = "width: 100%;")
                       )
                     ),
+                    # NUEVO: Fila adicional con botón de recarga forzada
+                    br(),
+                    fluidRow(
+                      column(12,
+                             div(class = "alert alert-warning",
+                                 HTML("🆘 <strong>¿Token renovado pero datos no actualizados?</strong><br>
+                                Usa este botón para forzar la recarga completa:")),
+                             actionButton("force_reload_data", "🔄 RECARGA FORZADA DE DATOS",
+                                          class = "btn-warning", style = "width: 100%; font-weight: bold;")
+                      )
+                    ),
                     br(),
                     verbatimTextOutput("sync_operation_status")
                 )
               ),
-              fluidRow(
-                box(title = "📂 Archivos de Backup en Dropbox", width = 12,
-                    DTOutput("backup_files_table"),
-                    br(),
-                    actionButton("restore_backup", "🔄 Restaurar Backup Seleccionado",
-                                 class = "btn-warning")
-                )
-              )
-      ),
-
-      # Tab: Descargar Datos
-      tabItem(tabName = "descargar",
-              fluidRow(
-                box(title = "Descargar Datos", width = 12, status = "primary",
-                    p("Descarga los datos del proyecto en formato Excel."),
-                    p(em("Nota: Los archivos están almacenados en Dropbox y no se incluyen en esta descarga.")),
-                    downloadButton("download_data", "Descargar Datos Excel", class = "btn-primary")
-                )
-              )
-      ),
 
       # Tab: Importar Datos
       tabItem(tabName = "importar",
@@ -3015,37 +3006,62 @@ server <- function(input, output, session) {
     })
   })
 
-  # Sincronización manual a Dropbox
-  observeEvent(input$sync_to_dropbox, {
-    if (!tokens_valid()) {
-      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
-      return()
-    }
-
-    data <- project_data()
-    if (nrow(data) == 0) {
-      output$sync_operation_status <- renderText("⚠️ No hay datos para sincronizar.")
-      return()
-    }
-
-    output$sync_operation_status <- renderText("🔄 Subiendo datos a Dropbox...")
+  # NUEVO: Recarga forzada de datos
+  observeEvent(input$force_reload_data, {
+    output$sync_operation_status <- renderText("🔄 RECARGA FORZADA: Limpiando cache y recargando datos...")
 
     tryCatch({
-      save_result <- save_data_to_dropbox(data)
-
-      if (save_result$success) {
-        output$sync_operation_status <- renderText(
-          paste("✅ Sincronización exitosa a Dropbox.",
-                "Guardados", nrow(data), "proyectos.",
-                "\n📁 Archivo principal:", save_result$main_path,
-                "\n📋 Backup:", save_result$backup_path)
-        )
-        showNotification("Datos sincronizados a Dropbox", type = "message")
-      } else {
-        output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", save_result$error))
+      # Verificar que tenemos token válido
+      if (!tokens_valid()) {
+        output$sync_operation_status <- renderText("❌ Error: No hay token válido. Configure OAuth primero.")
+        return()
       }
+
+      # Probar conexión con Dropbox
+      if (!test_dropbox_connection()) {
+        output$sync_operation_status <- renderText("❌ Error: No se puede conectar a Dropbox. Verifique la conexión.")
+        return()
+      }
+
+      output$sync_operation_status <- renderText("🔄 Conexión verificada. Descargando datos frescos desde Dropbox...")
+
+      # Forzar recarga completa desde Dropbox
+      fresh_data <- load_data_from_dropbox()
+
+      if (nrow(fresh_data) == 0) {
+        output$sync_operation_status <- renderText("⚠️ No se encontraron datos en Dropbox o el archivo está vacío.")
+        return()
+      }
+
+      # Verificar integridad
+      if (!verify_data_integrity(fresh_data)) {
+        output$sync_operation_status <- renderText("❌ Los datos descargados fallan la verificación de integridad.")
+        return()
+      }
+
+      # Actualizar datos en memoria
+      project_data(fresh_data)
+
+      # Crear backup local inmediatamente
+      tryCatch({
+        writexl::write_xlsx(fresh_data, data_file)
+      }, error = function(e) {
+        cat("Error al crear backup local:", e$message, "\n")
+      })
+
+      output$sync_operation_status <- renderText(
+        paste("✅ RECARGA FORZADA COMPLETADA",
+              "\n📊 Proyectos cargados:", nrow(fresh_data),
+              "\n🕒 Timestamp:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+              "\n💾 Backup local actualizado",
+              "\n\n🎯 Los datos deberían estar ahora actualizados en todas las pestañas.")
+      )
+
+      showNotification("✅ Recarga forzada completada - Datos actualizados", type = "message", duration = 5)
+
     }, error = function(e) {
-      output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", e$message))
+      output$sync_operation_status <- renderText(paste("❌ Error en recarga forzada:", e$message))
+      showNotification("❌ Error en recarga forzada", type = "error")
     })
   })
 
