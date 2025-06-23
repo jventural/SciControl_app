@@ -52,23 +52,18 @@ TOKEN_EXPIRY_TIME <- NULL
 # Función para generar URL de autorización
 generate_auth_url <- function() {
   base_url <- "https://www.dropbox.com/oauth2/authorize"
-
-  # Codificar cada parámetro individualmente
-  client_id_encoded <- URLencode(DROPBOX_APP_KEY, reserved = TRUE)
+  client_id_encoded    <- URLencode(DROPBOX_APP_KEY,      reserved = TRUE)
   redirect_uri_encoded <- URLencode(DROPBOX_REDIRECT_URI, reserved = TRUE)
 
-  # Construir URL manualmente para evitar problemas de encoding
-  auth_url <- paste0(
+  paste0(
     base_url,
-    "?client_id=", client_id_encoded,
+    "?client_id=",        client_id_encoded,
     "&response_type=code",
-    "&redirect_uri=", redirect_uri_encoded,
+    "&redirect_uri=",     redirect_uri_encoded,
     "&token_access_type=offline"
   )
-
-  cat("🔗 URL de autorización generada:", auth_url, "\n")
-  return(auth_url)
 }
+
 
 # Función para iniciar servidor temporal y capturar código
 capture_authorization_code <- function() {
@@ -1372,11 +1367,11 @@ server <- function(input, output, session) {
   useShinyjs()
 
   # Variables reactivas
-  project_data <- reactiveVal(create_initial_data_structure())
   files_refresh <- reactiveVal(0)
-  oauth_configured <- reactiveVal(TRUE)  # Siempre configurado con credenciales integradas
+  project_data <- reactiveVal(create_initial_data_structure())
+  oauth_configured <- reactiveVal(TRUE)
   tokens_valid <- reactiveVal(FALSE)
-  developer_mode <- reactiveVal(FALSE)  # Modo desarrollador DESACTIVADO por defecto
+  developer_mode <- reactiveVal(FALSE)
 
   progress_map <- list(
     "Introducción" = 10, "Método" = 30, "Resultados" = 50,
@@ -1702,8 +1697,12 @@ server <- function(input, output, session) {
 
     if (refresh_dropbox_access_token()) {
       tokens_valid(TRUE)
-      output$oauth_operation_status <- renderText("✅ Token refrescado exitosamente.")
-      showNotification("Token refrescado", type = "message")
+      try({
+        data_new <- load_project_data()
+        project_data(data_new)
+        showNotification("✅ Token refrescado y datos recargados", type = "message")
+        output$oauth_operation_status <- renderText("✅ Token refrescado y datos sincronizados con Dropbox.")
+      }, silent = TRUE)
     } else {
       output$oauth_operation_status <- renderText("❌ Error al refrescar token.")
       showNotification("Error al refrescar token", type = "error")
