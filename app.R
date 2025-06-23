@@ -234,13 +234,7 @@ exchange_code_for_tokens <- function(auth_code) {
       cat("💾 Tokens guardados en archivo\n")
       cat("✅ OAuth completado exitosamente\n")
 
-      # NUEVO: Marcar que necesitamos recargar datos
-      if (exists("data_needs_reload")) {
-        data_needs_reload(TRUE)
-      }
-
       return(TRUE)
-
     } else {
       error_content <- httr::content(response, "text")
       cat("❌ Error HTTP", response$status_code, "\n")
@@ -318,18 +312,8 @@ refresh_dropbox_access_token <- function() {
       )
       saveRDS(tokens, "dropbox_tokens.rds")
 
-      cat("✅ Access token refrescado exitosamente.\n")
-      cat("🔑 Nuevo token:", substr(DROPBOX_ACCESS_TOKEN, 1, 15), "...\n")
-      cat("⏰ Expira:", format(TOKEN_EXPIRY_TIME), "\n")
-
-    # NUEVO: Marcar que necesitamos recargar datos después del refresh
-      if (exists("data_needs_reload")) {
-        data_needs_reload(TRUE)
-        cat("🔄 Marcando datos para recarga después de refresh de token\n")
-      }
-
+      cat("Access token refrescado exitosamente.\n")
       return(TRUE)
-
     } else {
       error_content <- httr::content(response, "text")
       cat("Error al refrescar token:", error_content, "\n")
@@ -685,138 +669,42 @@ delete_dropbox_file <- function(file_path) {
 # ============================================================================
 # FUNCIONES DE ALMACENAMIENTO DE DATOS
 # ============================================================================
-# NUEVA: Función para verificar integridad de datos
-verify_data_integrity <- function(data) {
-  if (is.null(data) || !is.data.frame(data)) {
-    cat("❌ Datos no son un data.frame válido\n")
-    return(FALSE)
-  }
-
-  required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
-                        "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
-                        "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
-                        "Observaciones")
-
-  missing_columns <- setdiff(required_columns, colnames(data))
-  if (length(missing_columns) > 0) {
-    cat("⚠️ Columnas faltantes:", paste(missing_columns, collapse = ", "), "\n")
-    return(FALSE)
-  }
-
-  # Verificar que hay al menos una fila con nombre no vacío
-  valid_projects <- sum(!is.na(data$Nombre) & data$Nombre != "", na.rm = TRUE)
-  if (nrow(data) > 0 && valid_projects == 0) {
-    cat("⚠️ No hay proyectos válidos (sin nombres)\n")
-    return(FALSE)
-  }
-
-  cat("✅ Integridad de datos verificada:", nrow(data), "filas,", valid_projects, "proyectos válidos\n")
-  return(TRUE)
-}
-
-# NUEVA: Función para probar la conexión con Dropbox
-test_dropbox_connection <- function() {
-  if (DROPBOX_ACCESS_TOKEN == "") return(FALSE)
-
-  tryCatch({
-    response <- httr::POST(
-      url = "https://api.dropboxapi.com/2/users/get_current_account",
-      add_headers(
-        "Authorization" = paste("Bearer", DROPBOX_ACCESS_TOKEN),
-        "Content-Type" = "application/json"
-      ),
-      body = "null",
-      httr::timeout(10)
-    )
-
-    success <- response$status_code == 200
-    if (success) {
-      cat("✅ Test de conexión Dropbox exitoso\n")
-    } else {
-      cat("❌ Test de conexión Dropbox falló:", response$status_code, "\n")
-    }
-    return(success)
-  }, error = function(e) {
-    cat("❌ Error en test de conexión:", e$message, "\n")
-    return(FALSE)
-  })
-}
 
 save_data_to_dropbox <- function(project_data) {
   tryCatch({
-    # NUEVO: Verificar integridad antes de guardar
-    if (!verify_data_integrity(project_data)) {
-      return(list(success = FALSE, error = "Datos no pasan verificación de integridad"))
-    }
-
-    # NUEVO: Verificar token
-    token <- get_dropbox_token()
-    if (token == "") {
-      return(list(success = FALSE, error = "Token de Dropbox no válido"))
-    }
-
     temp_file <- tempfile(fileext = ".xlsx")
-
-    # NUEVO: Agregar metadatos al guardar
-    data_with_metadata <- project_data
-    attr(data_with_metadata, "saved_at") <- as.character(Sys.time())
-    attr(data_with_metadata, "token_created") <- as.character(Sys.time())
-
-    writexl::write_xlsx(data_with_metadata, temp_file)
+    writexl::write_xlsx(project_data, temp_file)
 
     timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
-    # Intentar guardar archivo principal
     main_result <- upload_to_dropbox(temp_file, "project_data.xlsx", "scicontrol/data")
-
-    # Crear backup automático
     backup_result <- upload_to_dropbox(temp_file,
                                        paste0("project_data_backup_", timestamp, ".xlsx"),
                                        "scicontrol/backups")
 
     unlink(temp_file)
 
-    if (main_result$success) {
-      cat("✅ Datos guardados exitosamente en Dropbox\n")
-      cat("📁 Archivo principal:", main_result$path, "\n")
-      if (backup_result$success) {
-        cat("📋 Backup creado:", backup_result$path, "\n")
-      }
-    }
-
     return(list(
-      success = main_result$success,
+      success = main_result$success && backup_result$success,
       main_path = if(main_result$success) main_result$path else NULL,
       backup_path = if(backup_result$success) backup_result$path else NULL,
-      error = if(!main_result$success) main_result$error else if(!backup_result$success) backup_result$error else NULL,
-      timestamp = timestamp  # NUEVO: Incluir timestamp para referencia
+      error = if(!main_result$success) main_result$error else if(!backup_result$success) backup_result$error else NULL
     ))
   }, error = function(e) {
-    cat("❌ Error en save_data_to_dropbox:", e$message, "\n")
     return(list(success = FALSE, error = as.character(e)))
   })
 }
 
 load_data_from_dropbox <- function() {
   tryCatch({
-    # NUEVO: Verificar token
-    token <- get_dropbox_token()
-    if (token == "") {
-      warning("Token de Dropbox no válido, usando estructura inicial")
-      return(create_initial_data_structure())
-    }
-
-    cat("🔄 Cargando datos desde Dropbox...\n")
-
     response <- GET(
       url = "https://content.dropboxapi.com/2/files/download",
       add_headers(
-        "Authorization" = paste("Bearer", token),
+        "Authorization" = paste("Bearer", get_dropbox_token()),
         "Dropbox-API-Arg" = jsonlite::toJSON(list(
           path = "/scicontrol/data/project_data.xlsx"
         ), auto_unbox = TRUE)
-      ),
-      httr::timeout(60)  # NUEVO: Timeout más largo
+      )
     )
 
     if (response$status_code == 200) {
@@ -825,12 +713,6 @@ load_data_from_dropbox <- function() {
 
       project_data <- read_excel(temp_file)
       unlink(temp_file)
-
-      # NUEVO: Verificar integridad de datos cargados
-      if (!verify_data_integrity(project_data)) {
-        warning("Datos cargados de Dropbox fallan verificación de integridad")
-        return(create_initial_data_structure())
-      }
 
       required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                             "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
@@ -869,20 +751,17 @@ load_data_from_dropbox <- function() {
       }
 
       project_data <- as.data.frame(project_data, stringsAsFactors = FALSE)
-
-      cat("✅ Datos cargados exitosamente desde Dropbox:", nrow(project_data), "proyectos\n")
-
       return(project_data)
 
     } else if (response$status_code == 409) {
-      cat("⚠️ Archivo de datos no encontrado en Dropbox, creando estructura inicial\n")
+      warning("Archivo de datos no encontrado en Dropbox, creando estructura inicial")
       return(create_initial_data_structure())
     } else {
       warning("Error al descargar desde Dropbox: ", response$status_code)
       return(create_initial_data_structure())
     }
   }, error = function(e) {
-    cat("❌ Error al cargar datos desde Dropbox:", e$message, "\n")
+    warning("Error al cargar datos desde Dropbox: ", e$message)
     return(create_initial_data_structure())
   })
 }
@@ -917,112 +796,49 @@ if (!dir.exists(data_dir)) {
 }
 data_file <- file.path(data_dir, "project_data.xlsx")
 
-load_project_data <- function(force_reload = FALSE) {
-  cat("🚀 Iniciando carga de datos del proyecto...\n")
-
-  # Verificar configuración OAuth
+load_project_data <- function() {
   if (!check_dropbox_config()) {
-    cat("⚠️ Dropbox OAuth no configurado, usando estructura inicial\n")
+    warning("Dropbox OAuth no configurado, usando estructura inicial")
     return(create_initial_data_structure())
   }
 
-  # NUEVO: Verificar si necesitamos recargar después de token refresh
-  if (exists("data_needs_reload") && (data_needs_reload() || force_reload)) {
-    cat("🔄 Recarga forzada de datos solicitada\n")
-    dropbox_data <- load_data_from_dropbox()
-    return(dropbox_data)
-  }
-
-  # Intentar cargar desde Dropbox primero (fuente de verdad)
   dropbox_data <- load_data_from_dropbox()
 
-  if (verify_data_integrity(dropbox_data) && nrow(dropbox_data) > 0) {
-    cat("✅ Usando datos de Dropbox como fuente principal\n")
+  if (nrow(dropbox_data) > 0) {
     return(dropbox_data)
   }
 
-  # Si Dropbox falla, intentar cargar desde archivo local como fallback
   if (file.exists(data_file)) {
-    cat("⚠️ Dropbox no disponible, intentando cargar backup local\n")
+    local_data <- read_excel(data_file)
 
-    tryCatch({
-      local_data <- read_excel(data_file)
-
-      if (verify_data_integrity(local_data) && nrow(local_data) > 0) {
-        cat("📁 Usando datos del backup local\n")
-
-        # Intentar sincronizar con Dropbox si es posible
-        if (check_dropbox_config()) {
-          upload_result <- save_data_to_dropbox(local_data)
-          if (upload_result$success) {
-            cat("✅ Datos locales migrados a Dropbox exitosamente\n")
-          }
-        }
-
-        return(local_data)
+    if (nrow(local_data) > 0) {
+      upload_result <- save_data_to_dropbox(local_data)
+      if (upload_result$success) {
+        message("Datos locales migrados a Dropbox exitosamente")
       }
-    }, error = function(e) {
-      cat("❌ Error al cargar backup local:", e$message, "\n")
-    })
+      return(local_data)
+    }
   }
 
-  # Si todo falla, crear estructura inicial
-  cat("📊 Creando estructura inicial (no hay datos previos válidos)\n")
   return(create_initial_data_structure())
 }
 
 save_project_data <- function(project_data) {
-  cat("💾 Iniciando guardado de datos del proyecto...\n")
-
-  # NUEVO: Verificar integridad antes de guardar
-  if (!verify_data_integrity(project_data)) {
-    return(list(success = FALSE, message = "Los datos no pasaron la verificación de integridad"))
+  if (!check_dropbox_config()) {
+    writexl::write_xlsx(project_data, data_file)
+    warning("Dropbox OAuth no configurado, guardando solo localmente")
+    return(list(success = TRUE, message = "Guardado localmente"))
   }
 
-  # Intentar guardar en Dropbox primero
-  if (check_dropbox_config()) {
-    cat("☁️ Guardando en Dropbox...\n")
-    dropbox_result <- save_data_to_dropbox(project_data)
+  dropbox_result <- save_data_to_dropbox(project_data)
 
-    # Guardar backup local independientemente del resultado de Dropbox
-    local_success <- TRUE
-    tryCatch({
-      writexl::write_xlsx(project_data, data_file)
-      cat("💾 Backup local creado exitosamente\n")
-    }, error = function(e) {
-      cat("⚠️ Error al guardar localmente:", e$message, "\n")
-      local_success <<- FALSE
-    })
+  tryCatch({
+    writexl::write_xlsx(project_data, data_file)
+  }, error = function(e) {
+    warning("Error al guardar localmente: ", e$message)
+  })
 
-    if (dropbox_result$success) {
-      cat("✅ Guardado exitoso en Dropbox y backup local\n")
-      return(list(
-        success = TRUE,
-        message = "Guardado exitoso en Dropbox",
-        main_path = dropbox_result$main_path,
-        backup_path = dropbox_result$backup_path,
-        timestamp = dropbox_result$timestamp
-      ))
-    } else {
-      cat("⚠️ Error en Dropbox, pero backup local disponible\n")
-      return(list(
-        success = local_success,
-        message = paste("Error en Dropbox:", dropbox_result$error, "- Guardado localmente:", local_success),
-        error = dropbox_result$error
-      ))
-    }
-  } else {
-    # Solo guardar localmente si Dropbox no está disponible
-    cat("📁 Dropbox no disponible, guardando solo localmente\n")
-    tryCatch({
-      writexl::write_xlsx(project_data, data_file)
-      cat("💾 Guardado local exitoso\n")
-      return(list(success = TRUE, message = "Guardado localmente (Dropbox no configurado)"))
-    }, error = function(e) {
-      cat("❌ Error al guardar localmente:", e$message, "\n")
-      return(list(success = FALSE, message = paste("Error al guardar:", e$message)))
-    })
-  }
+  return(dropbox_result)
 }
 
 # ============================================================================
@@ -1407,21 +1223,30 @@ ui <- dashboardPage(
                                           class = "btn-success", style = "width: 100%;")
                       )
                     ),
-                    # NUEVO: Fila adicional con botón de recarga forzada
-                    br(),
-                    fluidRow(
-                      column(12,
-                             div(class = "alert alert-warning",
-                                 HTML("🆘 <strong>¿Token renovado pero datos no actualizados?</strong><br>
-                                Usa este botón para forzar la recarga completa:")),
-                             actionButton("force_reload_data", "🔄 RECARGA FORZADA DE DATOS",
-                                          class = "btn-warning", style = "width: 100%; font-weight: bold;")
-                      )
-                    ),
                     br(),
                     verbatimTextOutput("sync_operation_status")
                 )
               ),
+              fluidRow(
+                box(title = "📂 Archivos de Backup en Dropbox", width = 12,
+                    DTOutput("backup_files_table"),
+                    br(),
+                    actionButton("restore_backup", "🔄 Restaurar Backup Seleccionado",
+                                 class = "btn-warning")
+                )
+              )
+      ),
+
+      # Tab: Descargar Datos
+      tabItem(tabName = "descargar",
+              fluidRow(
+                box(title = "Descargar Datos", width = 12, status = "primary",
+                    p("Descarga los datos del proyecto en formato Excel."),
+                    p(em("Nota: Los archivos están almacenados en Dropbox y no se incluyen en esta descarga.")),
+                    downloadButton("download_data", "Descargar Datos Excel", class = "btn-primary")
+                )
+              )
+      ),
 
       # Tab: Importar Datos
       tabItem(tabName = "importar",
@@ -1552,8 +1377,6 @@ server <- function(input, output, session) {
   oauth_configured <- reactiveVal(TRUE)  # Siempre configurado con credenciales integradas
   tokens_valid <- reactiveVal(FALSE)
   developer_mode <- reactiveVal(FALSE)  # Modo desarrollador DESACTIVADO por defecto
-  # NUEVA: Variable reactiva para controlar recarga de datos
-  data_needs_reload <- reactiveVal(FALSE)
 
   progress_map <- list(
     "Introducción" = 10, "Método" = 30, "Resultados" = 50,
@@ -1563,39 +1386,12 @@ server <- function(input, output, session) {
 
   # Al iniciar la aplicación, verificar configuración OAuth
   observe({
-    cat("🚀 Iniciando aplicación Shiny...\n")
-
-    # Inicializar OAuth
     tokens_ok <- initialize_dropbox_oauth()
     tokens_valid(tokens_ok)
 
-    # NUEVO: Cargar datos siempre, independientemente del estado de tokens
     if (tokens_ok) {
-      cat("✅ OAuth configurado, cargando datos...\n")
       initial_data <- load_project_data()
-    } else {
-      cat("⚠️ OAuth no configurado, usando datos locales si existen...\n")
-      initial_data <- load_project_data()  # Intentará cargar desde archivo local
-    }
-
-    project_data(initial_data)
-    cat("📊 Datos iniciales cargados:", nrow(initial_data), "proyectos\n")
-  })
-
-  # NUEVO: Observer para recargar datos cuando sea necesario
-  observe({
-    if (data_needs_reload()) {
-      cat("🔄 Recargando datos después de actualización de token...\n")
-
-      # Recargar datos desde Dropbox
-      fresh_data <- load_project_data(force_reload = TRUE)
-      project_data(fresh_data)
-
-      # Reset flag
-      data_needs_reload(FALSE)
-
-      showNotification("✅ Datos actualizados después de renovar token", type = "message", duration = 4)
-      cat("✅ Datos recargados:", nrow(fresh_data), "proyectos\n")
+      project_data(initial_data)
     }
   })
 
@@ -1796,10 +1592,9 @@ server <- function(input, output, session) {
         output$oauth_operation_status <- renderText("✅ Autorización manual completada exitosamente.")
         showNotification("Dropbox autorizado correctamente", type = "message")
 
-        # NUEVO: Recargar datos después de autorización exitosa
-        data_needs_reload(TRUE)
-
-
+        # Cargar datos después de la autorización
+        initial_data <- load_project_data()
+        project_data(initial_data)
       } else {
         output$oauth_operation_status <- renderText("❌ Error al procesar el código de autorización.")
         showNotification("Error al procesar código", type = "error")
@@ -1876,9 +1671,9 @@ server <- function(input, output, session) {
         output$oauth_operation_status <- renderText("✅ Autorización OAuth completada exitosamente.")
         showNotification("Dropbox autorizado correctamente", type = "message")
 
-        # NUEVO: Recargar datos después de autorización exitosa
-        data_needs_reload(TRUE)
-
+        # Cargar datos después de la autorización
+        initial_data <- load_project_data()
+        project_data(initial_data)
       } else {
         output$oauth_operation_status <- renderText("❌ Error en la autorización automática. 💡 Prueba con 'Autorización Manual' para ingresar el código manualmente.")
         showNotification("Prueba la autorización manual", type = "warning")
@@ -1909,11 +1704,7 @@ server <- function(input, output, session) {
       tokens_valid(TRUE)
       output$oauth_operation_status <- renderText("✅ Token refrescado exitosamente.")
       showNotification("Token refrescado", type = "message")
-
-      # NUEVO: Recargar datos después de refresh exitoso
-      data_needs_reload(TRUE)
-
-      } else {
+    } else {
       output$oauth_operation_status <- renderText("❌ Error al refrescar token.")
       showNotification("Error al refrescar token", type = "error")
     }
@@ -3006,62 +2797,37 @@ server <- function(input, output, session) {
     })
   })
 
-  # NUEVO: Recarga forzada de datos
-  observeEvent(input$force_reload_data, {
-    output$sync_operation_status <- renderText("🔄 RECARGA FORZADA: Limpiando cache y recargando datos...")
+  # Sincronización manual a Dropbox
+  observeEvent(input$sync_to_dropbox, {
+    if (!tokens_valid()) {
+      output$sync_operation_status <- renderText("❌ Dropbox no está configurado.")
+      return()
+    }
+
+    data <- project_data()
+    if (nrow(data) == 0) {
+      output$sync_operation_status <- renderText("⚠️ No hay datos para sincronizar.")
+      return()
+    }
+
+    output$sync_operation_status <- renderText("🔄 Subiendo datos a Dropbox...")
 
     tryCatch({
-      # Verificar que tenemos token válido
-      if (!tokens_valid()) {
-        output$sync_operation_status <- renderText("❌ Error: No hay token válido. Configure OAuth primero.")
-        return()
+      save_result <- save_data_to_dropbox(data)
+
+      if (save_result$success) {
+        output$sync_operation_status <- renderText(
+          paste("✅ Sincronización exitosa a Dropbox.",
+                "Guardados", nrow(data), "proyectos.",
+                "\n📁 Archivo principal:", save_result$main_path,
+                "\n📋 Backup:", save_result$backup_path)
+        )
+        showNotification("Datos sincronizados a Dropbox", type = "message")
+      } else {
+        output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", save_result$error))
       }
-
-      # Probar conexión con Dropbox
-      if (!test_dropbox_connection()) {
-        output$sync_operation_status <- renderText("❌ Error: No se puede conectar a Dropbox. Verifique la conexión.")
-        return()
-      }
-
-      output$sync_operation_status <- renderText("🔄 Conexión verificada. Descargando datos frescos desde Dropbox...")
-
-      # Forzar recarga completa desde Dropbox
-      fresh_data <- load_data_from_dropbox()
-
-      if (nrow(fresh_data) == 0) {
-        output$sync_operation_status <- renderText("⚠️ No se encontraron datos en Dropbox o el archivo está vacío.")
-        return()
-      }
-
-      # Verificar integridad
-      if (!verify_data_integrity(fresh_data)) {
-        output$sync_operation_status <- renderText("❌ Los datos descargados fallan la verificación de integridad.")
-        return()
-      }
-
-      # Actualizar datos en memoria
-      project_data(fresh_data)
-
-      # Crear backup local inmediatamente
-      tryCatch({
-        writexl::write_xlsx(fresh_data, data_file)
-      }, error = function(e) {
-        cat("Error al crear backup local:", e$message, "\n")
-      })
-
-      output$sync_operation_status <- renderText(
-        paste("✅ RECARGA FORZADA COMPLETADA",
-              "\n📊 Proyectos cargados:", nrow(fresh_data),
-              "\n🕒 Timestamp:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-              "\n💾 Backup local actualizado",
-              "\n\n🎯 Los datos deberían estar ahora actualizados en todas las pestañas.")
-      )
-
-      showNotification("✅ Recarga forzada completada - Datos actualizados", type = "message", duration = 5)
-
     }, error = function(e) {
-      output$sync_operation_status <- renderText(paste("❌ Error en recarga forzada:", e$message))
-      showNotification("❌ Error en recarga forzada", type = "error")
+      output$sync_operation_status <- renderText(paste("❌ Error al sincronizar:", e$message))
     })
   })
 
