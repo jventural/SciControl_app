@@ -363,8 +363,8 @@ initialize_dropbox_oauth <- function() {
   cat("Inicializando OAuth de Dropbox...\n")
 
   # 0️⃣ Intento refrescar desde el refresh token de entorno
-  if (nzchar(Sys.getenv("DROPBOX_REFRESH_TOKEN", ""))) {
-    DROPBOX_REFRESH_TOKEN <<- Sys.getenv("DROPBOX_REFRESH_TOKEN")
+  if (nzchar(env_rt <- Sys.getenv("DROPBOX_REFRESH_TOKEN", ""))) {
+    DROPBOX_REFRESH_TOKEN <<- env_rt
     cat("🔑 Refresh token cargado desde variable de entorno\n")
     cat("🔄 Intentando refrescar access token con ese refresh token…\n")
     if (refresh_dropbox_access_token()) {
@@ -401,8 +401,6 @@ initialize_dropbox_oauth <- function() {
   cat("❌ No hay tokens válidos. Ejecutar autorización OAuth.\n")
   return(FALSE)
 }
-
-
 
 # Función para iniciar flujo OAuth completo
 start_oauth_flow <- function() {
@@ -3282,7 +3280,7 @@ server <- function(input, output, session) {
 # ============================================================================
 
 # Al cargar la aplicación, inicializar OAuth automáticamente
-initialize_dropbox_oauth()
+# initialize_dropbox_oauth()
 
 # ============================================================================
 # MODO DESARROLLADOR - INSTRUCCIONES COMPLETAS
