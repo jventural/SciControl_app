@@ -362,6 +362,19 @@ check_dropbox_config <- function() {
 initialize_dropbox_oauth <- function() {
   cat("Inicializando OAuth de Dropbox...\n")
 
+  # 0️⃣ Intento refrescar desde el refresh token de entorno
+  if (nzchar(Sys.getenv("DROPBOX_REFRESH_TOKEN", ""))) {
+    DROPBOX_REFRESH_TOKEN <<- Sys.getenv("DROPBOX_REFRESH_TOKEN")
+    cat("🔑 Refresh token cargado desde variable de entorno\n")
+    cat("🔄 Intentando refrescar access token con ese refresh token…\n")
+    if (refresh_dropbox_access_token()) {
+      cat("✅ Token refrescado exitosamente (vence en:", format(TOKEN_EXPIRY_TIME), ")\n")
+      return(TRUE)
+    } else {
+      cat("⚠️ Falló refresco desde entorno, continúa flujo normal.\n")
+    }
+  }
+
   # 1️⃣ Intento cargar tokens guardados en disco
   if (load_saved_tokens()) {
     cat("✅ Tokens existentes cargados.\n")
@@ -373,7 +386,7 @@ initialize_dropbox_oauth <- function() {
       return(TRUE)
     }
 
-    # 3️⃣ Si está cercano a expirar (<=10 min) o ya expiró => refrescar
+    # 3️⃣ Si está cercano a expirar (≤10 min) o ya expiró → refrescar
     cat("⚠️ Token próximo a expirar o expirado. Intentando refrescar…\n")
     if (refresh_dropbox_access_token()) {
       cat("✅ Token refrescado exitosamente. Nuevo vencimiento:",
@@ -384,10 +397,11 @@ initialize_dropbox_oauth <- function() {
     }
   }
 
-  # 4️⃣ Si llegamos aquí, no hay tokens válidos -> OAuth manual
+  # 4️⃣ Si llegamos aquí, no hay tokens válidos → OAuth manual
   cat("❌ No hay tokens válidos. Ejecutar autorización OAuth.\n")
   return(FALSE)
 }
+
 
 
 # Función para iniciar flujo OAuth completo
