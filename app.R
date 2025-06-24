@@ -51,10 +51,14 @@ TOKEN_EXPIRY_TIME <- NULL
 
 # Función para generar URL de autorización
 generate_auth_url <- function() {
+  # Base de la URL de autorización
   base_url <- "https://www.dropbox.com/oauth2/authorize"
+
+  # Codificamos client_id y redirect_uri
   client_id_encoded    <- URLencode(DROPBOX_APP_KEY,      reserved = TRUE)
   redirect_uri_encoded <- URLencode(DROPBOX_REDIRECT_URI, reserved = TRUE)
 
+  # Construimos la URL con token_access_type=offline para recibir refresh_token
   paste0(
     base_url,
     "?client_id=",        client_id_encoded,
@@ -348,24 +352,33 @@ check_dropbox_config <- function() {
 initialize_dropbox_oauth <- function() {
   cat("Inicializando OAuth de Dropbox...\n")
 
+  # 1️⃣ Intento cargar tokens guardados en disco
   if (load_saved_tokens()) {
     cat("✅ Tokens existentes cargados.\n")
 
-    if (is.null(TOKEN_EXPIRY_TIME) || TOKEN_EXPIRY_TIME > Sys.time()) {
+    # 2️⃣ Si no hay expiry o caduca en más de 10 minutos, está OK
+    if (is.null(TOKEN_EXPIRY_TIME) ||
+        difftime(TOKEN_EXPIRY_TIME, Sys.time(), units = "mins") > 10) {
       cat("✅ Token válido hasta:", format(TOKEN_EXPIRY_TIME), "\n")
       return(TRUE)
+    }
+
+    # 3️⃣ Si está cercano a expirar (<=10 min) o ya expiró => refrescar
+    cat("⚠️ Token próximo a expirar o expirado. Intentando refrescar…\n")
+    if (refresh_dropbox_access_token()) {
+      cat("✅ Token refrescado exitosamente. Nuevo vencimiento:",
+          format(TOKEN_EXPIRY_TIME), "\n")
+      return(TRUE)
     } else {
-      cat("⚠️ Token expirado, intentando refrescar...\n")
-      if (refresh_dropbox_access_token()) {
-        cat("✅ Token refrescado exitosamente.\n")
-        return(TRUE)
-      }
+      cat("❌ Error al refrescar token.\n")
     }
   }
 
+  # 4️⃣ Si llegamos aquí, no hay tokens válidos -> OAuth manual
   cat("❌ No hay tokens válidos. Ejecutar autorización OAuth.\n")
   return(FALSE)
 }
+
 
 # Función para iniciar flujo OAuth completo
 start_oauth_flow <- function() {
