@@ -47,6 +47,13 @@ DROPBOX_REDIRECT_URI <- "http://localhost:1410/"
 # Variables globales para tokens
 DROPBOX_ACCESS_TOKEN <- ""
 DROPBOX_REFRESH_TOKEN <- ""
+
+if (nzchar(env_rt <- Sys.getenv("DROPBOX_REFRESH_TOKEN", ""))) {
+  DROPBOX_REFRESH_TOKEN <<- env_rt
+  cat("🔑 Refresh token cargado desde variable de entorno\n")
+}
+
+
 TOKEN_EXPIRY_TIME <- NULL
 
 # Función para generar URL de autorización
@@ -213,7 +220,7 @@ exchange_code_for_tokens <- function(auth_code) {
 
       cat("✅ Tokens obtenidos exitosamente\n")
       cat("🔑 Access token:", substr(token_data$access_token, 1, 20), "...\n")
-      cat("🔄 Refresh token:", substr(token_data$refresh_token, 1, 20), "...\n")
+      cat("🔄 Refresh token completo:", token_data$refresh_token, "\n")
       cat("⏰ Expira en:", token_data$expires_in, "segundos\n")
 
       # Guardar tokens globalmente
