@@ -666,29 +666,58 @@ delete_dropbox_file <- function(file_path) {
 # ============================================================================
 
 save_data_to_dropbox <- function(project_data) {
-  tryCatch({
-    temp_file <- tempfile(fileext = ".xlsx")
-    writexl::write_xlsx(project_data, temp_file)
+  # Crear un archivo temporal .xlsx
+  temp_file <- tempfile(fileext = ".xlsx")
+  writexl::write_xlsx(project_data, temp_file)
 
-    timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  # Timestamp para los backups
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
-    main_result <- upload_to_dropbox(temp_file, "project_data.xlsx", "scicontrol/data")
-    backup_result <- upload_to_dropbox(temp_file,
-                                       paste0("project_data_backup_", timestamp, ".xlsx"),
-                                       "scicontrol/backups")
-
+  # 1) Subir el archivo principal SIN timestamp en modo overwrite
+  dropbox_api_arg_main <- list(
+    path       = "/scicontrol/data/project_data.xlsx",
+    mode       = "overwrite",
+    autorename = FALSE,
+    mute       = FALSE
+  )
+  main_resp <- httr::POST(
+    url = "https://content.dropboxapi.com/2/files/upload",
+    httr::add_headers(
+      "Authorization"    = paste("Bearer", get_dropbox_token()),
+      "Dropbox-API-Arg"  = jsonlite::toJSON(dropbox_api_arg_main, auto_unbox = TRUE),
+      "Content-Type"     = "application/octet-stream"
+    ),
+    body    = readBin(temp_file, "raw", file.info(temp_file)$size),
+    httr::timeout(60)
+  )
+  if (main_resp$status_code != 200) {
+    err <- httr::content(main_resp, "text")
     unlink(temp_file)
+    stop("Error al subir archivo principal a Dropbox: ", err)
+  }
+  main_result <- httr::content(main_resp, as = "parsed")
 
-    return(list(
-      success = main_result$success && backup_result$success,
-      main_path = if(main_result$success) main_result$path else NULL,
-      backup_path = if(backup_result$success) backup_result$path else NULL,
-      error = if(!main_result$success) main_result$error else if(!backup_result$success) backup_result$error else NULL
-    ))
-  }, error = function(e) {
-    return(list(success = FALSE, error = as.character(e)))
-  })
+  # 2) Subir un backup con timestamp
+  backup_result <- upload_to_dropbox(
+    file_path   = temp_file,
+    file_name   = paste0("project_data_backup_", timestamp, ".xlsx"),
+    folder_path = "scicontrol/backups"
+  )
+
+  # Limpiar archivo temporal
+  unlink(temp_file)
+
+  # Retornar rutas y estado
+  return(list(
+    success     = TRUE,
+    main_path   = main_result$path_display,
+    backup_path = if (backup_result$success) backup_result$path else NULL,
+    error       = if (!backup_result$success) backup_result$error else NULL
+  ))
 }
+
+
+
 
 load_data_from_dropbox <- function() {
   tryCatch({
