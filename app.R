@@ -337,10 +337,13 @@ get_dropbox_token <- function() {
     load_saved_tokens()
   }
 
-  if (!is.null(TOKEN_EXPIRY_TIME) &&
-      TOKEN_EXPIRY_TIME - Sys.time() < as.difftime(10, units = "mins")) {
-    cat("Token próximo a expirar, refrescando...\n")
-    refresh_dropbox_access_token()
+  if (!is.null(TOKEN_EXPIRY_TIME) && TOKEN_EXPIRY_TIME <= Sys.time()) {
+    cat("⚠️ Token expirado o en el instante de expirar, refrescando…\n")
+    if (refresh_dropbox_access_token()) {
+      cat("✅ Token refrescado exitosamente a las", format(Sys.time()), "\n")
+    } else {
+      cat("❌ Falló el refresco automático de token\n")
+    }
   }
 
   return(DROPBOX_ACCESS_TOKEN)
@@ -1411,6 +1414,19 @@ ui <- dashboardPage(
 # ============================================================================
 
 server <- function(input, output, session) {
+
+  # 🚀 Auto-refrescar token cada hora
+  auto_refresh_timer <- reactiveTimer(60 * 60 * 1000)  # 1 hora en ms
+  observe({
+    auto_refresh_timer()
+    cat("⏳ Intentando refrescar token automáticamente...\n")
+    if (refresh_dropbox_access_token()) {
+      cat("✅ Token refrescado automáticamente a las", format(Sys.time()), "\n")
+    } else {
+      cat("⚠️ No se pudo refrescar token automáticamente\n")
+    }
+  })
+
 
   # Usar shinyjs para funciones JavaScript
   useShinyjs()
