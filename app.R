@@ -1043,6 +1043,7 @@ ui <- dashboardPage(
       menuItem("Ver Proyectos", tabName = "ver", icon = icon("table")),
       menuItem("Análisis de Tiempos", tabName = "dias", icon = icon("clock")),
       menuItem("Dashboard Visual", tabName = "dashboard", icon = icon("chart-line")),
+      menuItem("Seguimiento", tabName = "seguimiento", icon = icon("envelope")),
       menuItem("Subida de Evidencias", tabName = "evidencias", icon = icon("upload")),
       menuItem("Ver Archivos Subidos", tabName = "ver_evidencias", icon = icon("folder-open")),
       menuItem("Sincronización", tabName = "sync", icon = icon("sync")),
@@ -1222,6 +1223,17 @@ ui <- dashboardPage(
                     plotlyOutput("monthly_trends", height = "300px")
                 )
               )
+      ),
+      # === NUEVA PESTAÑA SEGUIMIENTO ===
+      tabItem(
+        tabName = "seguimiento",
+        fluidRow(
+          box(
+            title = "Seguimiento de Envíos",
+            width = 12, status = "warning",
+            DTOutput("seguimiento_table")
+          )
+        )
       ),
 
       # Tab: Subida de Evidencias
@@ -2945,6 +2957,35 @@ server <- function(input, output, session) {
     }, error = function(e) {
       output$sync_operation_status <- renderText(paste("❌ Error al crear backup:", e$message))
     })
+  })
+
+  # Lista de seguimiento
+  output$seguimiento_table <- renderDT({
+    # 1) Traer datos actuales
+    df <- project_data()
+
+    # 2) Filtrar solo proyectos con Fecha_Envio definida
+    df <- df[!is.na(df$Fecha_Envio) & df$Fecha_Envio != "", ]
+
+    # 3) Calcular días transcurridos y alerta
+    df <- df %>%
+      mutate(
+        Fecha_Envio = as.Date(Fecha_Envio),
+        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
+        Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", "")
+      ) %>%
+      select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta)
+
+    # 4) Mostrar tabla
+    datatable(
+      df,
+      options = list(pageLength = 10, autoWidth = TRUE),
+      rownames = FALSE,
+      caption = htmltools::tags$caption(
+        style = 'caption-side: bottom; text-align: left;',
+        "Proyectos con envío realizado y días transcurridos"
+      )
+    )
   })
 
   # Lista de archivos de backup
