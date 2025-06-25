@@ -2961,11 +2961,15 @@ server <- function(input, output, session) {
 
   # Lista de seguimiento
   output$seguimiento_table <- renderDT({
-    # 1) Traer datos actuales
     df <- project_data()
 
-    # 2) Filtrar solo proyectos con Fecha_Envio definida
-    df <- df[!is.na(df$Fecha_Envio) & df$Fecha_Envio != "", ]
+    # 2) Filtrar solo proyectos ENVIADOS con Fecha_Envio definida
+    df <- df %>%
+      filter(
+        Estado == "Enviado",
+        !is.na(Fecha_Envio),
+        Fecha_Envio != ""
+      )
 
     # 3) Calcular días transcurridos y alerta
     df <- df %>%
@@ -2983,7 +2987,7 @@ server <- function(input, output, session) {
       rownames = FALSE,
       caption = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
-        "Proyectos con envío realizado y días transcurridos"
+        "Proyectos Enviados y días transcurridos"
       )
     )
   })
