@@ -3030,15 +3030,18 @@ server <- function(input, output, session) {
 
     datatable(
       df_show,
-      escape   = FALSE,
-      options  = list(pageLength = 10, autoWidth = TRUE),
+      escape = FALSE,
+      options = list(pageLength = 10, autoWidth = TRUE),
       rownames = FALSE,
-      caption  = htmltools::tags$caption(
+      caption = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
       )
     )
-  })
+  }, server = FALSE)
+
+  # Proxy para refrescar la tabla de seguimiento sin re-renderizarla completa
+  seg_proxy <- dataTableProxy("seguimiento_table", session = session)
 
   observeEvent(input$save_seguimiento, {
     df_seg <- seguimiento_df()
@@ -3048,7 +3051,6 @@ server <- function(input, output, session) {
     }
 
     data <- project_data()
-
     guardadas <- 0L
 
     for (i in seq_len(nrow(df_seg))) {
@@ -3074,6 +3076,33 @@ server <- function(input, output, session) {
     res <- save_project_data(data)
     project_data(data)
 
+    # 🔄 REFRESCAR LA TABLA SIN RE-RENDER COMPLETO
+    # reconstruimos el data.frame que muestra el DT (incluyendo los <select>)
+    df <- seguimiento_df()
+    if (nrow(df) > 0) {
+      df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
+        as.character(
+          selectInput(
+            inputId  = df$CorreoID[i],   # mismo id estable
+            label    = NULL,
+            choices  = c("NO", "SI"),
+            selected = df$Envio_Correo[i] %||% "",
+            width    = "90px"
+          )
+        )
+      }, character(1))
+    } else {
+      df[["Se envió correo"]] <- character(0)
+    }
+    # reemplazar los datos visibles (ocultamos columnas auxiliares)
+    replaceData(
+      seg_proxy,
+      df %>% dplyr::select(-Envio_Correo, -CorreoID),
+      resetPaging = FALSE,
+      rownames = FALSE
+    )
+    # 🔄 FIN REFRESCO
+
     if (isTRUE(res$success)) {
       showModal(modalDialog(
         title = "✅ Seguimiento guardado",
@@ -3097,6 +3126,7 @@ server <- function(input, output, session) {
       ))
     }
   })
+
 
   output$download_seguimiento <- downloadHandler(
     filename = function() paste0("seguimiento_", Sys.Date(), ".xlsx"),
