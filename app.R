@@ -840,6 +840,7 @@ create_initial_data_structure <- function() {
     Fecha_Publicado = character(),
     Linea_Investigacion = character(),
     Observaciones = character(),
+    Envio_Correo = character(),      # <— NUEVA
     stringsAsFactors = FALSE
   )
   return(project_data)
@@ -1239,7 +1240,8 @@ ui <- dashboardPage(
             title = "Seguimiento de Envíos",
             width = 12, status = "warning",
             div(style = "display:flex; gap:8px; align-items:center; margin-bottom:8px;",
-                downloadButton("download_seguimiento", "⬇️ Descargar Excel", class = "btn-primary")
+                downloadButton("download_seguimiento", "⬇️ Descargar Excel", class = "btn-primary"),
+                actionButton("save_seguimiento", "💾 Guardar", class = "btn-success")  # <— NUEVO
             ),
             DTOutput("seguimiento_table")
           )
@@ -2982,9 +2984,17 @@ server <- function(input, output, session) {
       dplyr::mutate(
         Fecha_Envio = as.Date(Fecha_Envio),
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
-        Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", "")
+        Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", ""),
+        # ID estable por fila (usa nombre + fecha) para inputs de Shiny
+        CorreoID = paste0(
+          "correo_",
+          sapply(Nombre, sanitize_project_name),
+          "_",
+          format(Fecha_Envio, "%Y%m%d")
+        )
       ) %>%
-      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta)
+      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta,
+                    Envio_Correo, CorreoID)
 
     df
   })
@@ -3175,7 +3185,7 @@ server <- function(input, output, session) {
         required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                               "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
                               "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
-                              "Observaciones")
+                              "Observaciones", ,"Envio_Correo")
 
         missing_columns <- setdiff(required_columns, colnames(restored_data))
         if (length(missing_columns) > 0) {
@@ -3287,7 +3297,7 @@ server <- function(input, output, session) {
       required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                             "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
                             "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
-                            "Observaciones")
+                            "Observaciones","Envio_Correo")
 
       if (!"Nombre" %in% colnames(imported_data)) {
         output$import_status <- renderText("❌ El archivo debe contener al menos una columna 'Nombre'.")
