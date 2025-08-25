@@ -1239,14 +1239,15 @@ ui <- dashboardPage(
           box(
             title = "Seguimiento de Envíos",
             width = 12, status = "warning",
-            div(style = "display:flex; gap:8px; align-items:center; margin-bottom:8px;",
-                downloadButton("download_seguimiento", "⬇️ Descargar Excel", class = "btn-primary"),
-                actionButton("save_seguimiento", "💾 Guardar", class = "btn-success")  # <— NUEVO
+            div(style="margin-bottom:10px",
+                actionButton("save_seguimiento", "Guardar", icon = icon("save"),
+                             class = "btn-success")
             ),
             DTOutput("seguimiento_table")
           )
         )
-      ),
+      )
+      ,
 
       # Tab: Subida de Evidencias
       tabItem(tabName = "evidencias",
@@ -2977,8 +2978,10 @@ server <- function(input, output, session) {
   seguimiento_df <- reactive({
     df <- project_data()
 
-    # 👇 NUEVO: si no existe, créala
-    if (!"Envio_Correo" %in% names(df)) df$Envio_Correo <- NA_character_
+    # Garantiza la columna
+    if (!("Envio_Correo" %in% names(df))) {
+      df$Envio_Correo <- rep(NA_character_, nrow(df))
+    }
 
     df <- df %>%
       dplyr::filter(
@@ -2987,116 +2990,110 @@ server <- function(input, output, session) {
         Fecha_Envio != ""
       ) %>%
       dplyr::mutate(
-        Fecha_Envio = as.Date(Fecha_Envio),
-        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
+        # Normaliza fecha a YYYY-MM-DD para que haga match al guardar
+        Fecha_Envio_Str = format(as.Date(Fecha_Envio), "%Y-%m-%d"),
+        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), as.Date(Fecha_Envio_Str), units = "days")),
         Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", ""),
-        CorreoID = paste0(
-          "correo_",
-          sapply(Nombre, sanitize_project_name),
-          "_",
-          format(Fecha_Envio, "%Y%m%d")
-        )
+        # Clave de emparejamiento y el id del input
+        RowKey = paste(Nombre, Fecha_Envio_Str, sep = "||"),
+        CorreoID = paste0("correo_", sanitize_project_name(Nombre), "_", Fecha_Envio_Str)
       ) %>%
-      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta,
-                    Envio_Correo, CorreoID)
+      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio_Str, Dias_Transcurridos,
+                    Alerta, Envio_Correo, RowKey, CorreoID)
 
     df
   })
 
 
+
   # Lista de seguimiento (con columna "Se envió correo")
   output$seguimiento_table <- renderDT({
     df <- seguimiento_df()
-
-    # Columna de selectInput, preseleccionando lo guardado si existe
-    if (nrow(df) > 0) {
-      df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
-        as.character(
-          selectInput(
-            inputId  = df$CorreoID[i],            # ID estable
-            label    = NULL,
-            choices  = c("NO", "SI"),
-            selected = df$Envio_Correo[i] %||% "",# preselección
-            width    = "90px"
-          )
-        )
-      }, character(1))
-    } else {
-      df[["Se envió correo"]] <- character(0)
+    if (nrow(df) == 0) {
+      return(datatable(data.frame(Mensaje="No hay envíos para seguimiento"),
+                       options=list(pageLength=10), rownames=FALSE))
     }
 
-    # Ocultamos columnas auxiliares
-    df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
+    # Columna de selects
+    df$Se_envio_correo <- mapply(function(id, val){
+      as.character(
+        selectInput(
+          inputId = id, label = NULL,
+          choices = c("SI","NO"),
+          selected = ifelse(is.na(val) || val == "", "NO", toupper(val)),
+          width = "80px"
+        )
+      )
+    }, df$CorreoID, df$Envio_Correo, SIMPLIFY = FALSE) |> unlist()
+
+    mostrar <- df[, c("Revista","Cuartil","Nombre","Fecha_Envio_Str",
+                      "Dias_Transcurridos","Alerta","Se_envio_correo")]
+    colnames(mostrar)[4] <- "Fecha_Envio"
 
     datatable(
-      df_show,
-      escape   = FALSE,
-      options  = list(pageLength = 10, autoWidth = TRUE),
-      rownames = FALSE,
-      caption  = htmltools::tags$caption(
-        style = 'caption-side: bottom; text-align: left;',
-        "Proyectos Enviados y días transcurridos"
-      )
+      mostrar,
+      escape = FALSE,
+      options = list(pageLength = 10, autoWidth = TRUE),
+      rownames = FALSE
     )
   })
 
+
   observeEvent(input$save_seguimiento, {
-    df_seg <- seguimiento_df()
+    df_seg <- isolate(seguimiento_df())
     if (nrow(df_seg) == 0) {
-      showNotification("No hay filas para guardar.", type = "warning")
+      showModal(modalDialog(title = "Seguimiento",
+                            "No hay filas para guardar.", easyClose = TRUE,
+                            footer = modalButton("Cerrar")))
       return()
     }
 
+    # Lee cada select por su id
+    df_seg$Envio_Correo_New <- vapply(df_seg$CorreoID, function(id){
+      v <- input[[id]]
+      if (is.null(v) || v == "") NA_character_ else toupper(as.character(v))
+    }, character(1))
+
     data <- project_data()
+    if (!("Envio_Correo" %in% names(data))) data$Envio_Correo <- rep(NA_character_, nrow(data))
 
-    guardadas <- 0L
+    # Claves normalizadas en el dataset base
+    data$Fecha_Envio_Str <- ifelse(
+      is.na(data$Fecha_Envio) | data$Fecha_Envio == "",
+      NA_character_,
+      format(as.Date(data$Fecha_Envio), "%Y-%m-%d")
+    )
+    data$RowKey <- paste(data$Nombre, data$Fecha_Envio_Str, sep = "||")
 
-    for (i in seq_len(nrow(df_seg))) {
-      val <- input[[ df_seg$CorreoID[i] ]]
-      if (!is.null(val) && val %in% c("SI","NO")) {
-        # Match por Nombre + Fecha_Envio (más seguro que solo nombre)
-        idx <- which(
-          data$Nombre == df_seg$Nombre[i] &
-            as.character(data$Fecha_Envio) == as.character(df_seg$Fecha_Envio[i])
-        )
-        if (length(idx) == 0) {
-          # fallback: por Nombre
-          idx <- which(data$Nombre == df_seg$Nombre[i])
-        }
-        if (length(idx) > 0) {
-          data$Envio_Correo[idx[1]] <- val
-          guardadas <- guardadas + 1L
+    # Aplica cambios
+    m <- match(df_seg$RowKey, data$RowKey)
+    changed <- 0L
+    for (i in seq_along(m)) {
+      j <- m[i]
+      if (!is.na(j)) {
+        old <- toupper(ifelse(is.na(data$Envio_Correo[j]), "", data$Envio_Correo[j]))
+        new <- df_seg$Envio_Correo_New[i]
+        if (!is.na(new) && !identical(new, old)) {
+          data$Envio_Correo[j] <- new
+          changed <- changed + 1L
         }
       }
     }
 
-    # Persistir (Dropbox + local)
-    res <- save_project_data(data)
-    project_data(data)
+    # Persiste y refresca en memoria
+    res <- save_project_data(data[, setdiff(names(data), c("Fecha_Envio_Str","RowKey"))])
+    project_data(data[, setdiff(names(data), c("Fecha_Envio_Str","RowKey"))])
 
-    if (isTRUE(res$success)) {
-      showModal(modalDialog(
-        title = "✅ Seguimiento guardado",
-        HTML(paste0(
-          "Valores guardados para <strong>", guardadas, "</strong> fila(s).",
-          "<br><small>Archivo: ", res$main_path, "</small>"
-        )),
-        easyClose = TRUE,
-        footer = modalButton("Cerrar")
-      ))
-    } else {
-      showModal(modalDialog(
-        title = "⚠️ Guardado parcial",
-        HTML(paste0(
-          "Se actualizaron <strong>", guardadas, "</strong> fila(s) en memoria, ",
-          "pero hubo un problema al guardar en Dropbox.<br><small>Error: ",
-          res$error, "</small>"
-        )),
-        easyClose = TRUE,
-        footer = modalButton("Cerrar")
-      ))
-    }
+    showModal(modalDialog(
+      title = "✅ Seguimiento guardado",
+      HTML(paste0("Valores guardados para <b>", changed, "</b> fila(s).",
+                  "<br><small>Archivo: ",
+                  if (isTRUE(res$success)) res$main_path else "guardado local",
+                  "</small>")),
+      easyClose = TRUE, footer = modalButton("Cerrar")
+    ))
   })
+
 
   output$download_seguimiento <- downloadHandler(
     filename = function() paste0("seguimiento_", Sys.Date(), ".xlsx"),
