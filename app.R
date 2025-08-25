@@ -1453,6 +1453,17 @@ ui <- dashboardPage(
 
 server <- function(input, output, session) {
 
+  # Convierte a booleano valores lógicos, numéricos o cadenas localizadas (TRUE, "VERDADERO", "Sí", "1", etc.)
+  as_bool_relaxed <- function(x) {
+    if (is.logical(x)) return(x)
+    x_chr <- tolower(trimws(as.character(x)))
+    true_vals  <- c("true","1","si","sí","s","verdadero","yes","y","t")
+    false_vals <- c("false","0","no","n","f","falso")
+    ifelse(x_chr %in% true_vals, TRUE,
+           ifelse(x_chr %in% false_vals, FALSE, NA))
+  }
+
+
   # 🚀 Auto-refrescar token cada hora
   auto_refresh_timer <- reactiveTimer(60 * 60 * 1000)  # 1 hora en ms
   observe({
@@ -2989,7 +3000,7 @@ server <- function(input, output, session) {
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days"))
       )
 
-    # 2) Preparar columnas de seguimiento en el origen (si no existen)
+    # 2) Asegurar columnas de seguimiento en el origen (si no existen)
     pd <- df_all
     if (!"Correo_Seguimiento_Enviado" %in% names(pd)) pd$Correo_Seguimiento_Enviado <- NA
     if (!"Fecha_Correo_Seguimiento" %in% names(pd)) pd$Fecha_Correo_Seguimiento <- NA
@@ -3007,20 +3018,19 @@ server <- function(input, output, session) {
     if (!"Correo_Seguimiento_Enviado" %in% names(df)) df$Correo_Seguimiento_Enviado <- NA
     if (!"Fecha_Correo_Seguimiento" %in% names(df)) df$Fecha_Correo_Seguimiento <- NA
 
-    # 4) Calcular Alerta con case_when y la marca de "Correo_Enviado"
+    # 4) Normalización + columnas finales homogéneas
     df <- df %>%
       dplyr::mutate(
+        .correo_flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
         Alerta = dplyr::case_when(
-          Dias_Transcurridos > 60 &
-            (is.na(Correo_Seguimiento_Enviado) |
-               !(Correo_Seguimiento_Enviado %in% c(TRUE, "TRUE", 1, "Sí", "Si", "S"))) ~ "📧 Enviar correo de seguimiento",
+          Dias_Transcurridos > 60 & (is.na(.correo_flag) | !.correo_flag) ~ "📧 Enviar correo de seguimiento",
           TRUE ~ ""
         ),
-        Correo_Enviado = dplyr::if_else(
-          !is.na(Correo_Seguimiento_Enviado) &
-            (Correo_Seguimiento_Enviado %in% c(TRUE, "TRUE", 1, "Sí", "Si", "S")),
-          paste0("✅ ", as.character(Fecha_Correo_Seguimiento)),
-          ""
+        Correo_Enviado = dplyr::case_when(
+          .correo_flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
+            paste0("✅ Se envió correo (", as.character(Fecha_Correo_Seguimiento), ")"),
+          .correo_flag ~ "✅ Se envió correo",
+          TRUE ~ ""
         )
       ) %>%
       dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado)
@@ -3036,7 +3046,6 @@ server <- function(input, output, session) {
       )
     )
   })
-
 
   # Marcar como enviado
   observeEvent(input$mark_followup_sent, {
@@ -3106,8 +3115,7 @@ server <- function(input, output, session) {
     content = function(file) {
       df_all <- project_data()
 
-      # Mismo pipeline que la tabla + columnas de seguimiento (si existen)
-      df <- df_all %>%
+      base <- df_all %>%
         dplyr::filter(
           Estado == "Enviado",
           !is.na(Fecha_Envio),
@@ -3115,18 +3123,38 @@ server <- function(input, output, session) {
         ) %>%
         dplyr::mutate(
           Fecha_Envio = as.Date(Fecha_Envio),
-          Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
-          Alerta = ifelse(Dias_Transcurridos > 60, "Enviar correo de seguimiento", "")
+          Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days"))
         )
 
-      if (!"Correo_Seguimiento_Enviado" %in% names(df)) df$Correo_Seguimiento_Enviado <- NA
-      if (!"Fecha_Correo_Seguimiento" %in% names(df)) df$Fecha_Correo_Seguimiento <- NA
+      # Garantizar columnas en origen
+      if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
+      if (!"Fecha_Correo_Seguimiento" %in% names(df_all)) df_all$Fecha_Correo_Seguimiento <- NA
 
-      export <- df %>%
+      aux <- df_all %>%
+        dplyr::transmute(
+          Nombre,
+          Fecha_Envio = as.Date(Fecha_Envio),
+          Correo_Seguimiento_Enviado,
+          Fecha_Correo_Seguimiento
+        )
+
+      export <- base %>%
+        dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio")) %>%
+        dplyr::mutate(
+          .correo_flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
+          Alerta = dplyr::case_when(
+            Dias_Transcurridos > 60 & (is.na(.correo_flag) | !.correo_flag) ~ "Enviar correo de seguimiento",
+            TRUE ~ ""
+          ),
+          Correo_Enviado = dplyr::case_when(
+            .correo_flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
+              paste0("✅ Se envió correo (", as.character(Fecha_Correo_Seguimiento), ")"),
+            .correo_flag ~ "✅ Se envió correo",
+            TRUE ~ ""
+          )
+        ) %>%
         dplyr::select(
-          Revista, Cuartil, Nombre, Fecha_Envio,
-          Dias_Transcurridos, Alerta,
-          Correo_Seguimiento_Enviado, Fecha_Correo_Seguimiento
+          Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado
         )
 
       writexl::write_xlsx(export, path = file)
