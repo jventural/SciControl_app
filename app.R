@@ -1469,8 +1469,6 @@ server <- function(input, output, session) {
 
   # Variables reactivas
   files_refresh <- reactiveVal(0)
-  # contador de versiones de la tabla de seguimiento
-  seguimiento_version <- reactiveVal(0)
   project_data <- reactiveVal(create_initial_data_structure())
   oauth_configured <- reactiveVal(TRUE)
   tokens_valid <- reactiveVal(FALSE)
@@ -3008,14 +3006,12 @@ server <- function(input, output, session) {
 
   # Lista de seguimiento (con columna "Se envió correo")
   output$seguimiento_table <- renderDT({
-    v  <- seguimiento_version()      # versión actual
     df <- seguimiento_df()
-
     if (nrow(df) > 0) {
       df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
         as.character(
           selectInput(
-            inputId  = paste0(df$CorreoID[i], "_v", v),    # <-- ID único
+            inputId  = df$CorreoID[i],
             label    = NULL,
             choices  = c("NO", "SI"),
             selected = df$Envio_Correo[i] %||% "",
@@ -3026,57 +3022,48 @@ server <- function(input, output, session) {
     } else {
       df[["Se envió correo"]] <- character(0)
     }
-
     df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
 
     datatable(
       df_show,
-      escape = FALSE,
-      options = list(pageLength = 10, autoWidth = TRUE),
+      escape   = FALSE,
+      options  = list(pageLength = 10, autoWidth = TRUE),
       rownames = FALSE,
       caption  = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
-      ),
-      callback = JS(
-        // enlaza cada <select> cuando cambie
-        "table.on('change', 'select', function(){",
-        "  var id  = $(this).attr('id');",
-        "  var val = $(this).val();",
-        "  Shiny.setInputValue(id, val, {priority: 'event'});",
-        "});"
       )
     )
-  }, server = FALSE)
-
-
-
+  }, server = FALSE)   # <-- IMPORTANTE
 
 
   # Proxy para refrescar la tabla de seguimiento sin re-renderizarla completa
   seg_proxy <- dataTableProxy("seguimiento_table", session = session)
 
   observeEvent(input$save_seguimiento, {
-    v_anterior <- seguimiento_version()     # <-- versión que está en pantalla
-    df_seg     <- seguimiento_df()
+    df_seg <- seguimiento_df()
     if (nrow(df_seg) == 0) {
       showNotification("No hay filas para guardar.", type = "warning")
       return()
     }
 
-    data      <- project_data()
+    data <- project_data()
     guardadas <- 0L
 
     for (i in seq_len(nrow(df_seg))) {
-      # incorpora la versión al ID que vamos a leer
-      val <- input[[ paste0(df_seg$CorreoID[i], "_v", v_anterior) ]] %||%
-        (df_seg$Envio_Correo[i] %||% NA_character_)
+      # Si el input no existe o está NULL, usa lo que ya estaba guardado en Envio_Correo
+      val <- input[[ df_seg$CorreoID[i] ]] %||% (df_seg$Envio_Correo[i] %||% NA_character_)
 
       if (!is.na(val) && val %in% c("SI","NO")) {
-        idx <- which(data$Nombre == df_seg$Nombre[i] &
-                       as.character(data$Fecha_Envio) ==
-                       as.character(df_seg$Fecha_Envio[i]))
-        if (length(idx) == 0) idx <- which(data$Nombre == df_seg$Nombre[i])
+        # Match por Nombre + Fecha_Envio (más seguro)
+        idx <- which(
+          data$Nombre == df_seg$Nombre[i] &
+            as.character(data$Fecha_Envio) == as.character(df_seg$Fecha_Envio[i])
+        )
+        if (length(idx) == 0) {
+          # fallback: por Nombre
+          idx <- which(data$Nombre == df_seg$Nombre[i])
+        }
         if (length(idx) > 0) {
           data$Envio_Correo[idx[1]] <- val
           guardadas <- guardadas + 1L
@@ -3084,11 +3071,9 @@ server <- function(input, output, session) {
       }
     }
 
-    # ---- Persistir y refrescar ----
+    # Persistir (Dropbox + local) y disparar el re-render de la tabla
     res <- save_project_data(data)
-    project_data(data)
-
-    seguimiento_version(v_anterior + 1)   # <-- fuerza redibujo con nuevos IDs
+    project_data(data)  # <- esto hace que seguimiento_df() y la tabla se redibujen
 
     if (isTRUE(res$success)) {
       showModal(modalDialog(
@@ -3113,8 +3098,6 @@ server <- function(input, output, session) {
       ))
     }
   })
-
-
 
 
 
