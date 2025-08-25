@@ -3014,14 +3014,14 @@ server <- function(input, output, session) {
         valor_actual <- if(!is.na(df$Envio_Correo[i]) && df$Envio_Correo[i] != "") {
           df$Envio_Correo[i]
         } else {
-          "NO"
+          "No"
         }
 
         as.character(
           selectInput(
             inputId = df$CorreoID[i],
             label = NULL,
-            choices = c("NO", "SI"),
+            choices = c("No", "Sí", "Aún no es necesario"),
             selected = valor_actual,
             width = "90px"
           )
