@@ -2592,26 +2592,25 @@ server <- function(input, output, session) {
     fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
     fecha_envio <- if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado") && !is.null(input$send_date)) {
       as.character(input$send_date)
-    } else {
-      NA_character_
-    }
+    } else NA_character_
     fecha_resp <- if (input$status %in% c("Revisión","Aceptado","Publicado") && !is.null(input$response_date)) {
       as.character(input$response_date)
-    } else {
-      NA_character_
-    }
+    } else NA_character_
     fecha_acc <- if (input$status %in% c("Aceptado","Publicado") && !is.null(input$acceptance_date)) {
       as.character(input$acceptance_date)
-    } else {
-      NA_character_
-    }
+    } else NA_character_
     fecha_pub <- if (input$status == "Publicado" && !is.null(input$publication_date)) {
       as.character(input$publication_date)
+    } else NA_character_
+
+    prog <- progress_map[[input$status]]
+
+    # 🔹 NUEVO: conservar el valor previo de 'Envio_Correo' si existe
+    envio_correo_val <- if ("Envio_Correo" %in% names(data) && length(idx) > 0) {
+      as.character(data$Envio_Correo[idx][1])
     } else {
       NA_character_
     }
-
-    prog <- progress_map[[input$status]]
 
     new_row <- data.frame(
       Nombre = as.character(input$project_name),
@@ -2627,24 +2626,18 @@ server <- function(input, output, session) {
       Fecha_Publicado = fecha_pub,
       Linea_Investigacion = as.character(input$research_line %||% ""),
       Observaciones = as.character(input$observations %||% ""),
+      Envio_Correo = envio_correo_val,   # ← NUEVO
       stringsAsFactors = FALSE
     )
 
     alertas_validacion <- c()
-
-    if (!is.na(fecha_inicio) && !is.na(fecha_envio)) {
-      if (as.Date(fecha_envio) < as.Date(fecha_inicio)) {
-        alertas_validacion <- c(alertas_validacion, "La fecha de envío es anterior a la fecha de inicio")
-      }
+    if (!is.na(fecha_inicio) && !is.na(fecha_envio) && as.Date(fecha_envio) < as.Date(fecha_inicio)) {
+      alertas_validacion <- c(alertas_validacion, "La fecha de envío es anterior a la fecha de inicio")
+    }
+    if (!is.na(fecha_envio) && !is.na(fecha_resp) && as.Date(fecha_resp) < as.Date(fecha_envio)) {
+      alertas_validacion <- c(alertas_validacion, "La fecha de respuesta es anterior a la fecha de envío")
     }
 
-    if (!is.na(fecha_envio) && !is.na(fecha_resp)) {
-      if (as.Date(fecha_resp) < as.Date(fecha_envio)) {
-        alertas_validacion <- c(alertas_validacion, "La fecha de respuesta es anterior a la fecha de envío")
-      }
-    }
-
-    # Mostrar advertencias pero permitir guardar
     if (length(alertas_validacion) > 0) {
       showModal(modalDialog(
         title = "⚠️ Advertencia de Validación",
@@ -2662,10 +2655,8 @@ server <- function(input, output, session) {
     # Guardar datos
     tryCatch({
       if (length(idx) > 0) {
-        # Actualizar proyecto existente
         data[idx, ] <- new_row
       } else {
-        # Agregar nuevo proyecto
         data <- rbind(data, new_row)
       }
 
@@ -2673,7 +2664,6 @@ server <- function(input, output, session) {
 
       if (save_result$success) {
         project_data(data)
-
         showModal(modalDialog(
           title = "✅ Éxito",
           HTML(paste("El proyecto ha sido guardado correctamente.",
@@ -2703,6 +2693,8 @@ server <- function(input, output, session) {
     })
   })
 
+
+
   # Evento para confirmar guardado con advertencias
   observeEvent(input$confirm_save, {
     removeModal()
@@ -2713,26 +2705,25 @@ server <- function(input, output, session) {
     fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
     fecha_envio <- if (input$status %in% c("Enviado", "Revisión", "Aceptado", "Publicado") && !is.null(input$send_date)) {
       as.character(input$send_date)
-    } else {
-      NA_character_
-    }
+    } else NA_character_
     fecha_resp <- if (input$status %in% c("Revisión","Aceptado","Publicado") && !is.null(input$response_date)) {
       as.character(input$response_date)
-    } else {
-      NA_character_
-    }
+    } else NA_character_
     fecha_acc <- if (input$status %in% c("Aceptado","Publicado") && !is.null(input$acceptance_date)) {
       as.character(input$acceptance_date)
-    } else {
-      NA_character_
-    }
+    } else NA_character_
     fecha_pub <- if (input$status == "Publicado" && !is.null(input$publication_date)) {
       as.character(input$publication_date)
+    } else NA_character_
+
+    prog <- progress_map[[input$status]]
+
+    # 🔹 NUEVO: conservar el valor previo de 'Envio_Correo' si existe
+    envio_correo_val <- if ("Envio_Correo" %in% names(data) && length(idx) > 0) {
+      as.character(data$Envio_Correo[idx][1])
     } else {
       NA_character_
     }
-
-    prog <- progress_map[[input$status]]
 
     new_row <- data.frame(
       Nombre = as.character(input$project_name),
@@ -2748,6 +2739,7 @@ server <- function(input, output, session) {
       Fecha_Publicado = fecha_pub,
       Linea_Investigacion = as.character(input$research_line %||% ""),
       Observaciones = as.character(input$observations %||% ""),
+      Envio_Correo = envio_correo_val,   # ← NUEVO
       stringsAsFactors = FALSE
     )
 
@@ -2786,6 +2778,7 @@ server <- function(input, output, session) {
       ))
     })
   })
+
 
   # ========================================================================
   # LIMPIAR CAMPOS
@@ -3003,16 +2996,16 @@ server <- function(input, output, session) {
   output$seguimiento_table <- renderDT({
     df <- seguimiento_df()
 
-    # Agregar columna con selectInput SI/NO por fila
+    # Columna de selectInput, preseleccionando lo guardado si existe
     if (nrow(df) > 0) {
       df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
         as.character(
           selectInput(
-            inputId = paste0("correo_", i),
-            label   = NULL,
-            choices = c("NO", "SI"),
-            selected = NULL,
-            width   = "90px"
+            inputId  = df$CorreoID[i],            # ID estable
+            label    = NULL,
+            choices  = c("SI", "NO"),
+            selected = df$Envio_Correo[i] %||% "",# preselección
+            width    = "90px"
           )
         )
       }, character(1))
@@ -3020,17 +3013,76 @@ server <- function(input, output, session) {
       df[["Se envió correo"]] <- character(0)
     }
 
+    # Ocultamos columnas auxiliares
+    df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
+
     datatable(
-      df,
-      escape = FALSE,
-      options = list(pageLength = 10, autoWidth = TRUE),
+      df_show,
+      escape   = FALSE,
+      options  = list(pageLength = 10, autoWidth = TRUE),
       rownames = FALSE,
-      selection = 'none',   # <— opcional: desactiva selección de filas
-      caption = htmltools::tags$caption(
+      caption  = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
       )
     )
+  })
+
+  observeEvent(input$save_seguimiento, {
+    df_seg <- seguimiento_df()
+    if (nrow(df_seg) == 0) {
+      showNotification("No hay filas para guardar.", type = "warning")
+      return()
+    }
+
+    data <- project_data()
+    guardadas <- 0L
+
+    for (i in seq_len(nrow(df_seg))) {
+      val <- input[[ df_seg$CorreoID[i] ]]
+      if (!is.null(val) && val %in% c("SI","NO")) {
+        # Match por Nombre + Fecha_Envio (más seguro que solo nombre)
+        idx <- which(
+          data$Nombre == df_seg$Nombre[i] &
+            as.character(data$Fecha_Envio) == as.character(df_seg$Fecha_Envio[i])
+        )
+        if (length(idx) == 0) {
+          # fallback: por Nombre
+          idx <- which(data$Nombre == df_seg$Nombre[i])
+        }
+        if (length(idx) > 0) {
+          data$Envio_Correo[idx[1]] <- val
+          guardadas <- guardadas + 1L
+        }
+      }
+    }
+
+    # Persistir (Dropbox + local)
+    res <- save_project_data(data)
+    project_data(data)
+
+    if (isTRUE(res$success)) {
+      showModal(modalDialog(
+        title = "✅ Seguimiento guardado",
+        HTML(paste0(
+          "Valores guardados para <strong>", guardadas, "</strong> fila(s).",
+          "<br><small>Archivo: ", res$main_path, "</small>"
+        )),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+    } else {
+      showModal(modalDialog(
+        title = "⚠️ Guardado parcial",
+        HTML(paste0(
+          "Se actualizaron <strong>", guardadas, "</strong> fila(s) en memoria, ",
+          "pero hubo un problema al guardar en Dropbox.<br><small>Error: ",
+          res$error, "</small>"
+        )),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+    }
   })
 
   output$download_seguimiento <- downloadHandler(
@@ -3038,18 +3090,22 @@ server <- function(input, output, session) {
     content = function(file) {
       df <- seguimiento_df()
 
-      # Leer valores elegidos en los selectInput (SI/NO) si existen
       if (nrow(df) > 0) {
-        df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
-          input[[paste0("correo_", i)]] %||% ""
+        # Toma lo seleccionado en pantalla si existe; si no, lo ya guardado
+        df$Envio_Correo <- vapply(seq_len(nrow(df)), function(i) {
+          input[[ df$CorreoID[i] ]] %||% (df$Envio_Correo[i] %||% "")
         }, character(1))
-      } else {
-        df[["Se envió correo"]] <- character(0)
       }
 
-      writexl::write_xlsx(df, file)
+      # Exporta columnas útiles
+      writexl::write_xlsx(
+        df %>% dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio,
+                             Dias_Transcurridos, Alerta, Envio_Correo),
+        file
+      )
     }
   )
+
 
   # Lista de archivos de backup
   output$backup_files_table <- renderDT({
