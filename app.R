@@ -1231,24 +1231,10 @@ ui <- dashboardPage(
           box(
             title = "Seguimiento de Envíos",
             width = 12, status = "warning",
-            # 👉 Barra con los dos botones nuevos
-            div(style = "display:flex; gap:8px; align-items:center; margin-bottom:8px;",
-                actionButton(
-                  "mark_followup_sent",
-                  "📧 Marcar 'correo enviado' (fila seleccionada)",
-                  class = "btn-success"
-                ),
-                downloadButton(
-                  "download_seguimiento",
-                  "⬇️ Descargar Excel",
-                  class = "btn-primary"
-                )
-            ),
             DTOutput("seguimiento_table")
           )
         )
-      )
-      ,
+      ),
 
       # Tab: Subida de Evidencias
       tabItem(tabName = "evidencias",
@@ -1453,24 +1439,6 @@ ui <- dashboardPage(
 
 server <- function(input, output, session) {
 
-  # Convierte a booleano valores lógicos, numéricos o cadenas localizadas (TRUE, "VERDADERO", "Sí", "1", etc.)
-  # --- Helpers robustos ---
-  as_bool_relaxed <- function(x) {
-    if (is.logical(x)) return(x)
-    x_chr <- tolower(trimws(as.character(x)))
-    true_vals  <- c("true","1","si","sí","s","verdadero","yes","y","t")
-    false_vals <- c("false","0","no","n","f","falso")
-    ifelse(x_chr %in% true_vals, TRUE,
-           ifelse(x_chr %in% false_vals, FALSE, NA))
-  }
-  norm_estado <- function(x) tolower(trimws(as.character(x)))
-  norm_date   <- function(x) suppressWarnings(as.Date(as.character(x)))
-
-
-
-
-
-
   # 🚀 Auto-refrescar token cada hora
   auto_refresh_timer <- reactiveTimer(60 * 60 * 1000)  # 1 hora en ms
   observe({
@@ -1488,7 +1456,6 @@ server <- function(input, output, session) {
   useShinyjs()
 
   # Variables reactivas
-  seguimiento_view <- reactiveVal(data.frame())
   files_refresh <- reactiveVal(0)
   project_data <- reactiveVal(create_initial_data_structure())
   oauth_configured <- reactiveVal(TRUE)
@@ -2992,199 +2959,38 @@ server <- function(input, output, session) {
     })
   })
 
-
-  # Almacenar la vista de seguimiento para marcar/descargar
-  seguimiento_view <- reactiveVal(data.frame())
-
-
   # Lista de seguimiento
   output$seguimiento_table <- renderDT({
-    df_all <- project_data()
+    df <- project_data()
 
-    # Normaliza estado y fecha (tolerante a espacios/case y a formatos de fecha)
-    df0 <- df_all %>%
-      dplyr::mutate(
-        Estado_norm     = tolower(trimws(as.character(Estado))),
-        FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio)))
+    # 2) Filtrar solo proyectos ENVIADOS con Fecha_Envio definida
+    df <- df %>%
+      filter(
+        Estado == "Enviado",
+        !is.na(Fecha_Envio),
+        Fecha_Envio != ""
       )
 
-    # Filtro principal: cualquier fila con Fecha_Envio válida,
-    # priorizando estados típicos del flujo de envío
-    base <- df0 %>%
-      dplyr::filter(
-        !is.na(FechaEnvio_date),
-        Estado_norm %in% c("enviado","revision","revisión","aceptado","publicado") | is.na(Estado_norm)
-      )
-
-    # Si por alguna razón quedó vacío, fallback: solo fecha válida
-    if (nrow(base) == 0) {
-      base <- df0 %>% dplyr::filter(!is.na(FechaEnvio_date))
-    }
-
-    # Asegura columnas de seguimiento en el origen
-    if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
-    if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
-
-    # AUX con alias estables (evita "objeto no encontrado" en mutate)
-    aux <- df_all %>%
-      dplyr::transmute(
-        Nombre,
-        FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio))),
-        cse = Correo_Seguimiento_Enviado,
-        fcs = Fecha_Correo_Seguimiento
-      )
-
-    # Unión por clave robusta (Nombre + fecha parseada)
-    df <- base %>%
-      dplyr::left_join(aux, by = c("Nombre","FechaEnvio_date")) %>%
-      dplyr::mutate(
-        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")),
-        .flag = as_bool_relaxed(cse),
-        Alerta = dplyr::case_when(
-          Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "📧 Enviar correo de seguimiento",
-          TRUE ~ ""
-        ),
-        Correo_Enviado = dplyr::case_when(
-          .flag & !is.na(fcs) & fcs != "" ~ paste0("✅ Se envió correo (", as.character(fcs), ")"),
-          .flag ~ "✅ Se envió correo",
-          TRUE  ~ ""
-        ),
-        RowKey = paste0(Nombre, "||", as.character(FechaEnvio_date))
+    # 3) Calcular días transcurridos y alerta
+    df <- df %>%
+      mutate(
+        Fecha_Envio = as.Date(Fecha_Envio),
+        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
+        Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", "")
       ) %>%
-      dplyr::select(
-        Revista, Cuartil, Nombre,
-        Fecha_Envio = FechaEnvio_date,
-        Dias_Transcurridos, Alerta, Correo_Enviado, RowKey
-      )
+      select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta)
 
-    # Guarda exactamente lo que ve el usuario (para marcar/descargar)
-    seguimiento_view(df)
-
+    # 4) Mostrar tabla
     datatable(
       df,
-      escape = FALSE,
-      options = list(
-        pageLength = 10,
-        autoWidth = TRUE,
-        columnDefs = list(list(visible = FALSE, targets = ncol(df))) # oculta RowKey
-      ),
+      options = list(pageLength = 10, autoWidth = TRUE),
       rownames = FALSE,
-      selection = "single",
       caption = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
       )
     )
   })
-
-
-
-  # Marcar como enviado
-  observeEvent(input$mark_followup_sent, {
-    sel <- input$seguimiento_table_rows_selected
-    cur <- seguimiento_view()
-
-    if (is.null(sel) || length(sel) == 0 || NROW(cur) < sel) {
-      showModal(modalDialog(
-        title = "Selecciona una fila",
-        "Primero selecciona un envío en la tabla de seguimiento.",
-        easyClose = TRUE, footer = modalButton("Cerrar")
-      ))
-      return()
-    }
-
-    selected_row <- cur[sel, ]
-    row_key <- selected_row$RowKey
-    parts <- strsplit(row_key, "\\|\\|")[[1]]
-    nombre_sel <- parts[1]
-    fecha_envio_sel <- parts[2]
-
-    # Actualizar datos principales
-    df_all <- project_data()
-    match_idx <- which(
-      df_all$Nombre == nombre_sel &
-        suppressWarnings(as.character(as.Date(df_all$Fecha_Envio))) == fecha_envio_sel
-    )
-
-    if (length(match_idx) > 0) {
-      # Asegurar columnas existan
-      if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
-      if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
-
-      # Marcar como enviado
-      df_all[match_idx[1], "Correo_Seguimiento_Enviado"] <- "TRUE"
-      df_all[match_idx[1], "Fecha_Correo_Seguimiento"]   <- as.character(Sys.Date())
-
-      project_data(df_all)
-      result <- save_project_data(df_all)
-
-      if (result$success) {
-        showNotification("✅ Correo de seguimiento marcado como enviado", type = "message")
-      } else {
-        showNotification("❌ Error al guardar", type = "error")
-      }
-    } else {
-      showNotification("❌ No se pudo encontrar el registro", type = "error")
-    }
-  })
-
-
-  # Descargar seguimiento
-  output$download_seguimiento <- downloadHandler(
-    filename = function() {
-      paste0("seguimiento_", format(Sys.Date(), "%Y%m%d"), ".xlsx")
-    },
-    content = function(file) {
-      # Recrear la misma vista pero sin RowKey para descarga
-      df_all <- project_data()
-
-      df0 <- df_all %>%
-        dplyr::mutate(
-          Estado_norm     = tolower(trimws(as.character(Estado))),
-          FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio)))
-        )
-
-      base <- df0 %>%
-        dplyr::filter(
-          !is.na(FechaEnvio_date),
-          Estado_norm %in% c("enviado","revision","revisión","aceptado","publicado") | is.na(Estado_norm)
-        )
-
-      if (nrow(base) == 0) {
-        base <- df0 %>% dplyr::filter(!is.na(FechaEnvio_date))
-      }
-
-      if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
-      if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
-
-      aux <- df_all %>%
-        dplyr::transmute(
-          Nombre,
-          FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio))),
-          cse = Correo_Seguimiento_Enviado,
-          fcs = Fecha_Correo_Seguimiento
-        )
-
-      view <- base %>%
-        dplyr::left_join(aux, by = c("Nombre","FechaEnvio_date")) %>%
-        dplyr::mutate(
-          Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")),
-          .flag = as_bool_relaxed(cse),
-          Alerta = dplyr::case_when(
-            Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "Enviar correo de seguimiento",
-            TRUE ~ ""
-          ),
-          Correo_Enviado = dplyr::case_when(
-            .flag & !is.na(fcs) & fcs != "" ~ paste0("Se envió correo (", as.character(fcs), ")"),
-            .flag ~ "Se envió correo",
-            TRUE  ~ ""
-          )
-        ) %>%
-        dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio = FechaEnvio_date, Dias_Transcurridos, Alerta, Correo_Enviado)
-
-      writexl::write_xlsx(view, file)
-    }
-  )
 
   # Lista de archivos de backup
   output$backup_files_table <- renderDT({
