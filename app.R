@@ -2977,8 +2977,10 @@ server <- function(input, output, session) {
   seguimiento_df <- reactive({
     df <- project_data()
 
-    # 👇 NUEVO: si no existe, créala
-    if (!"Envio_Correo" %in% names(df)) df$Envio_Correo <- NA_character_
+    # Asegurar que existe la columna Envio_Correo
+    if (!"Envio_Correo" %in% names(df)) {
+      df$Envio_Correo <- NA_character_
+    }
 
     df <- df %>%
       dplyr::filter(
@@ -2990,12 +2992,8 @@ server <- function(input, output, session) {
         Fecha_Envio = as.Date(Fecha_Envio),
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
         Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", ""),
-        CorreoID = paste0(
-          "correo_",
-          sapply(Nombre, sanitize_project_name),
-          "_",
-          format(Fecha_Envio, "%Y%m%d")
-        )
+        # Simplificar el ID para evitar caracteres problemáticos
+        CorreoID = paste0("correo_", row_number())
       ) %>%
       dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta,
                     Envio_Correo, CorreoID)
@@ -3005,82 +3003,135 @@ server <- function(input, output, session) {
 
 
   # Lista de seguimiento (con columna "Se envió correo")
+  # Renderizar la tabla de seguimiento
   output$seguimiento_table <- renderDT({
     df <- seguimiento_df()
+
     if (nrow(df) > 0) {
+      # Crear los selectInput con IDs más simples
       df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
+        # Usar el valor guardado o "NO" por defecto
+        valor_actual <- if(!is.na(df$Envio_Correo[i]) && df$Envio_Correo[i] != "") {
+          df$Envio_Correo[i]
+        } else {
+          "NO"
+        }
+
         as.character(
           selectInput(
-            inputId  = df$CorreoID[i],
-            label    = NULL,
-            choices  = c("NO", "SI"),
-            selected = df$Envio_Correo[i] %||% "",
-            width    = "90px"
+            inputId = df$CorreoID[i],
+            label = NULL,
+            choices = c("NO", "SI"),
+            selected = valor_actual,
+            width = "90px"
           )
         )
       }, character(1))
     } else {
       df[["Se envió correo"]] <- character(0)
     }
+
+    # Ocultar las columnas auxiliares
     df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
 
     datatable(
       df_show,
-      escape   = FALSE,
-      options  = list(pageLength = 10, autoWidth = TRUE),
+      escape = FALSE,
+      options = list(
+        pageLength = 10,
+        autoWidth = TRUE,
+        # Importante: usar callbacks para asegurar que los inputs se registren
+        drawCallback = JS('function() { Shiny.bindAll(this.api().table().node()); }')
+      ),
       rownames = FALSE,
-      caption  = htmltools::tags$caption(
+      caption = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
       )
     )
-  }, server = FALSE)   # <-- IMPORTANTE
-
+  }, server = FALSE)
 
   # Proxy para refrescar la tabla de seguimiento sin re-renderizarla completa
   seg_proxy <- dataTableProxy("seguimiento_table", session = session)
 
   observeEvent(input$save_seguimiento, {
+    # Pequeña pausa para asegurar que los inputs estén sincronizados
+    Sys.sleep(0.1)
+
     df_seg <- seguimiento_df()
+
     if (nrow(df_seg) == 0) {
-      showNotification("No hay filas para guardar.", type = "warning")
+      showNotification("No hay proyectos enviados para guardar.", type = "warning")
       return()
     }
 
     data <- project_data()
+
+    # Asegurar que existe la columna
+    if (!"Envio_Correo" %in% names(data)) {
+      data$Envio_Correo <- NA_character_
+    }
+
     guardadas <- 0L
+    valores_guardados <- list()
+
+    # Depuración: mostrar qué inputs están disponibles
+    cat("IDs esperados:", paste(df_seg$CorreoID, collapse = ", "), "\n")
 
     for (i in seq_len(nrow(df_seg))) {
-      # Si el input no existe o está NULL, usa lo que ya estaba guardado en Envio_Correo
-      val <- input[[ df_seg$CorreoID[i] ]] %||% (df_seg$Envio_Correo[i] %||% NA_character_)
+      correo_id <- df_seg$CorreoID[i]
 
-      if (!is.na(val) && val %in% c("SI","NO")) {
-        # Match por Nombre + Fecha_Envio (más seguro)
+      # Intentar obtener el valor del input
+      val <- input[[correo_id]]
+
+      # Depuración
+      cat("Input", correo_id, "=", val, "\n")
+
+      if (!is.null(val) && val %in% c("SI", "NO")) {
+        # Buscar el proyecto por nombre y fecha
         idx <- which(
           data$Nombre == df_seg$Nombre[i] &
             as.character(data$Fecha_Envio) == as.character(df_seg$Fecha_Envio[i])
         )
+
+        # Si no encuentra por nombre y fecha, buscar solo por nombre
         if (length(idx) == 0) {
-          # fallback: por Nombre
           idx <- which(data$Nombre == df_seg$Nombre[i])
         }
+
         if (length(idx) > 0) {
           data$Envio_Correo[idx[1]] <- val
+          valores_guardados[[df_seg$Nombre[i]]] <- val
           guardadas <- guardadas + 1L
+          cat("Guardado:", df_seg$Nombre[i], "=", val, "\n")
         }
       }
     }
 
-    # Persistir (Dropbox + local) y disparar el re-render de la tabla
+    if (guardadas == 0) {
+      showModal(modalDialog(
+        title = "⚠️ Sin cambios",
+        HTML("No se detectaron cambios para guardar.<br>
+           <small>Asegúrese de seleccionar SI o NO en las opciones.</small>"),
+        easyClose = TRUE,
+        footer = modalButton("Cerrar")
+      ))
+      return()
+    }
+
+    # Guardar en Dropbox
     res <- save_project_data(data)
-    project_data(data)  # <- esto hace que seguimiento_df() y la tabla se redibujen
+    project_data(data)
 
     if (isTRUE(res$success)) {
       showModal(modalDialog(
         title = "✅ Seguimiento guardado",
         HTML(paste0(
-          "Valores guardados para <strong>", guardadas, "</strong> fila(s).",
-          "<br><small>Archivo: ", res$main_path, "</small>"
+          "Se guardaron <strong>", guardadas, "</strong> proyecto(s):<br>",
+          "<ul>",
+          paste(sprintf("<li>%s: %s</li>", names(valores_guardados), valores_guardados), collapse = ""),
+          "</ul>",
+          "<small>Archivo: ", res$main_path, "</small>"
         )),
         easyClose = TRUE,
         footer = modalButton("Cerrar")
@@ -3089,9 +3140,9 @@ server <- function(input, output, session) {
       showModal(modalDialog(
         title = "⚠️ Guardado parcial",
         HTML(paste0(
-          "Se actualizaron <strong>", guardadas, "</strong> fila(s) en memoria, ",
-          "pero hubo un problema al guardar en Dropbox.<br><small>Error: ",
-          res$error, "</small>"
+          "Se actualizaron <strong>", guardadas, "</strong> proyecto(s) en memoria, ",
+          "pero hubo un problema al guardar en Dropbox.<br>",
+          "<small>Error: ", res$error, "</small>"
         )),
         easyClose = TRUE,
         footer = modalButton("Cerrar")
@@ -3100,25 +3151,30 @@ server <- function(input, output, session) {
   })
 
 
-
   output$download_seguimiento <- downloadHandler(
-    filename = function() paste0("seguimiento_", Sys.Date(), ".xlsx"),
+    filename = function() {
+      paste0("seguimiento_", Sys.Date(), ".xlsx")
+    },
     content = function(file) {
       df <- seguimiento_df()
 
       if (nrow(df) > 0) {
-        # Toma lo seleccionado en pantalla si existe; si no, lo ya guardado
-        df$Envio_Correo <- vapply(seq_len(nrow(df)), function(i) {
-          input[[ df$CorreoID[i] ]] %||% (df$Envio_Correo[i] %||% "")
-        }, character(1))
+        # Obtener los valores actuales de los selectInput
+        for (i in seq_len(nrow(df))) {
+          val_actual <- input[[df$CorreoID[i]]]
+          if (!is.null(val_actual)) {
+            df$Envio_Correo[i] <- val_actual
+          }
+        }
       }
 
-      # Exporta columnas útiles
-      writexl::write_xlsx(
-        df %>% dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio,
-                             Dias_Transcurridos, Alerta, Envio_Correo),
-        file
-      )
+      # Exportar columnas relevantes
+      df_export <- df %>%
+        dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio,
+                      Dias_Transcurridos, Alerta, Envio_Correo) %>%
+        dplyr::rename(`Se envió correo` = Envio_Correo)
+
+      writexl::write_xlsx(df_export, file)
     }
   )
 
