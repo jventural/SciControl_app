@@ -3012,10 +3012,10 @@ server <- function(input, output, session) {
       df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
         as.character(
           selectInput(
-            inputId  = df$CorreoID[i],      # ID estable
+            inputId  = df$CorreoID[i],
             label    = NULL,
             choices  = c("NO", "SI"),
-            selected = df$Envio_Correo[i] %||% "",  # si no hay valor, queda vacío
+            selected = df$Envio_Correo[i] %||% "",
             width    = "90px"
           )
         )
@@ -3035,16 +3035,17 @@ server <- function(input, output, session) {
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
       ),
-      # ⬇️ Enlaza los <select> con Shiny al cambiar
       callback = JS(
-        "table.on('change', 'select', function(){",
+        "var tbl = table.table().node();",
+        "$(tbl).on('change', 'select', function(){",
         "  var id  = $(this).attr('id');",
         "  var val = $(this).val();",
         "  Shiny.setInputValue(id, val, {priority: 'event'});",
         "});"
       )
     )
-  }, server = FALSE)   # ⬅️ MUY IMPORTANTE
+  }, server = FALSE)
+
 
 
 
