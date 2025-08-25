@@ -1231,10 +1231,24 @@ ui <- dashboardPage(
           box(
             title = "Seguimiento de Envíos",
             width = 12, status = "warning",
+            # 👉 Barra con los dos botones nuevos
+            div(style = "display:flex; gap:8px; align-items:center; margin-bottom:8px;",
+                actionButton(
+                  "mark_followup_sent",
+                  "📧 Marcar 'correo enviado' (fila seleccionada)",
+                  class = "btn-success"
+                ),
+                downloadButton(
+                  "download_seguimiento",
+                  "⬇️ Descargar Excel",
+                  class = "btn-primary"
+                )
+            ),
             DTOutput("seguimiento_table")
           )
         )
-      ),
+      )
+      ,
 
       # Tab: Subida de Evidencias
       tabItem(tabName = "evidencias",
@@ -2961,36 +2975,144 @@ server <- function(input, output, session) {
 
   # Lista de seguimiento
   output$seguimiento_table <- renderDT({
-    df <- project_data()
+    df_all <- project_data()
 
-    # 2) Filtrar solo proyectos ENVIADOS con Fecha_Envio definida
-    df <- df %>%
-      filter(
+    # --- reconstrucción del df que muestra la tabla ---
+    df <- df_all %>%
+      dplyr::filter(
         Estado == "Enviado",
         !is.na(Fecha_Envio),
         Fecha_Envio != ""
+      ) %>%
+      dplyr::mutate(
+        Fecha_Envio = as.Date(Fecha_Envio),
+        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days"))
+        # 👈 OJO: aquí ya NO calculamos Alerta todavía
       )
 
-    # 3) Calcular días transcurridos y alerta
+    # columnas de seguimiento (si no existen, se crean vacías)
+    pd <- df_all
+    if (!"Correo_Seguimiento_Enviado" %in% names(pd)) pd$Correo_Seguimiento_Enviado <- NA
+    if (!"Fecha_Correo_Seguimiento" %in% names(pd)) pd$Fecha_Correo_Seguimiento <- NA
+
+    aux <- pd %>%
+      dplyr::select(Nombre, Fecha_Envio, Correo_Seguimiento_Enviado, Fecha_Correo_Seguimiento) %>%
+      dplyr::mutate(Fecha_Envio = as.Date(Fecha_Envio))
+
     df <- df %>%
-      mutate(
-        Fecha_Envio = as.Date(Fecha_Envio),
+      dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio")) %>%
+      dplyr::mutate(
+        # ✅ aquí sí calculamos Alerta usando case_when (ya existe Correo_Seguimiento_Enviado)
+        Alerta = dplyr::case_when(
+          Dias_Transcurridos > 60 &
+            (is.na(Correo_Seguimiento_Enviado) |
+               !(Correo_Seguimiento_Enviado %in% c(TRUE, "TRUE", 1, "Sí", "Si", "S"))) ~ "📧 Enviar correo de seguimiento",
+          TRUE ~ ""
+        ),
+        Correo_Enviado = dplyr::if_else(
+          !is.na(Correo_Seguimiento_Enviado) &
+            (Correo_Seguimiento_Enviado %in% c(TRUE, "TRUE", 1, "Sí", "Si", "S")),
+          paste0("✅ ", as.character(Fecha_Correo_Seguimiento)),
+          ""
+        )
+      ) %>%
+      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado)
+  })
+
+  # Marcar como enviado
+  observeEvent(input$mark_followup_sent, {
+    sel <- input$seguimiento_table_rows_selected
+    if (is.null(sel) || length(sel) == 0) {
+      showModal(modalDialog(
+        title = "Selecciona una fila",
+        "Primero selecciona un envío en la tabla de seguimiento.",
+        easyClose = TRUE, footer = modalButton("Cerrar")
+      ))
+      return()
+    }
+
+    # Recrear el mismo df que muestra la tabla para mapear bien el índice seleccionado
+    df_all <- project_data()
+
+    df_seg <- df_all %>%
+      dplyr::filter(
+        Estado == "Enviado",
+        !is.na(Fecha_Envio),
+        Fecha_Envio != ""
+      ) %>%
+      dplyr::mutate(Fecha_Envio = as.Date(Fecha_Envio)) %>%
+      dplyr::mutate(
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
         Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", "")
-      ) %>%
-      select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta)
-
-    # 4) Mostrar tabla
-    datatable(
-      df,
-      options = list(pageLength = 10, autoWidth = TRUE),
-      rownames = FALSE,
-      caption = htmltools::tags$caption(
-        style = 'caption-side: bottom; text-align: left;',
-        "Proyectos Enviados y días transcurridos"
       )
-    )
+
+    if (nrow(df_seg) < sel) {
+      showNotification("Selección inválida.", type = "error")
+      return()
+    }
+
+    fila <- df_seg[sel, ]  # fila seleccionada (con Fecha_Envio en Date)
+
+    # Asegurar columnas nuevas en el objeto base
+    if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
+    if (!"Fecha_Correo_Seguimiento" %in% names(df_all)) df_all$Fecha_Correo_Seguimiento <- NA
+
+    # Ubicar índice en project_data por Nombre + Fecha_Envio (guardada como character allí)
+    idx <- which(df_all$Nombre == fila$Nombre &
+                   df_all$Fecha_Envio == as.character(fila$Fecha_Envio))
+
+    if (length(idx) == 0) {
+      showNotification("No se pudo ubicar la fila en los datos base.", type = "error")
+      return()
+    }
+
+    # Marcar y fechar
+    df_all$Correo_Seguimiento_Enviado[idx] <- TRUE
+    df_all$Fecha_Correo_Seguimiento[idx] <- as.character(Sys.Date())
+
+    # Guardar
+    res <- try(save_project_data(df_all), silent = TRUE)
+    project_data(df_all)
+
+    if (!inherits(res, "try-error") && isTRUE(res$success)) {
+      showNotification("✅ Marcado como 'correo enviado'.", type = "message")
+    } else {
+      showNotification("⚠️ Marcado localmente (falló Dropbox).", type = "warning")
+    }
   })
+
+  # Descargar seguimiento
+  output$download_seguimiento <- downloadHandler(
+    filename = function() paste0("seguimiento_", Sys.Date(), ".xlsx"),
+    content = function(file) {
+      df_all <- project_data()
+
+      # Mismo pipeline que la tabla + columnas de seguimiento (si existen)
+      df <- df_all %>%
+        dplyr::filter(
+          Estado == "Enviado",
+          !is.na(Fecha_Envio),
+          Fecha_Envio != ""
+        ) %>%
+        dplyr::mutate(
+          Fecha_Envio = as.Date(Fecha_Envio),
+          Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
+          Alerta = ifelse(Dias_Transcurridos > 60, "Enviar correo de seguimiento", "")
+        )
+
+      if (!"Correo_Seguimiento_Enviado" %in% names(df)) df$Correo_Seguimiento_Enviado <- NA
+      if (!"Fecha_Correo_Seguimiento" %in% names(df)) df$Fecha_Correo_Seguimiento <- NA
+
+      export <- df %>%
+        dplyr::select(
+          Revista, Cuartil, Nombre, Fecha_Envio,
+          Dias_Transcurridos, Alerta,
+          Correo_Seguimiento_Enviado, Fecha_Correo_Seguimiento
+        )
+
+      writexl::write_xlsx(export, path = file)
+    }
+  )
 
   # Lista de archivos de backup
   output$backup_files_table <- renderDT({
