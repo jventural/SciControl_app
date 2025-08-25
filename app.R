@@ -1464,6 +1464,7 @@ server <- function(input, output, session) {
   }
 
 
+
   # 🚀 Auto-refrescar token cada hora
   auto_refresh_timer <- reactiveTimer(60 * 60 * 1000)  # 1 hora en ms
   observe({
@@ -1481,6 +1482,7 @@ server <- function(input, output, session) {
   useShinyjs()
 
   # Variables reactivas
+  seguimiento_view <- reactiveVal(data.frame())
   files_refresh <- reactiveVal(0)
   project_data <- reactiveVal(create_initial_data_structure())
   oauth_configured <- reactiveVal(TRUE)
@@ -2988,7 +2990,7 @@ server <- function(input, output, session) {
   output$seguimiento_table <- renderDT({
     df_all <- project_data()
 
-    # 1) Base: solo ENVIADOS con fecha válida
+    # 1) Base: ENVIADOS con fecha válida
     df <- df_all %>%
       dplyr::filter(
         Estado == "Enviado",
@@ -3000,12 +3002,11 @@ server <- function(input, output, session) {
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days"))
       )
 
-    # 2) Asegurar columnas de seguimiento en el origen (si no existen)
-    pd <- df_all
-    if (!"Correo_Seguimiento_Enviado" %in% names(pd)) pd$Correo_Seguimiento_Enviado <- NA
-    if (!"Fecha_Correo_Seguimiento" %in% names(pd)) pd$Fecha_Correo_Seguimiento <- NA
+    # 2) Asegurar columnas de seguimiento en origen
+    if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
+    if (!"Fecha_Correo_Seguimiento" %in% names(df_all)) df_all$Fecha_Correo_Seguimiento <- NA
 
-    aux <- pd %>%
+    aux <- df_all %>%
       dplyr::transmute(
         Nombre,
         Fecha_Envio = as.Date(Fecha_Envio),
@@ -3013,31 +3014,38 @@ server <- function(input, output, session) {
         Fecha_Correo_Seguimiento
       )
 
-    # 3) Unir y GARANTIZAR columnas aunque no haya match
-    df <- df %>% dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio"))
-    if (!"Correo_Seguimiento_Enviado" %in% names(df)) df$Correo_Seguimiento_Enviado <- NA
-    if (!"Fecha_Correo_Seguimiento" %in% names(df)) df$Fecha_Correo_Seguimiento <- NA
-
-    # 4) Normalización + columnas finales homogéneas
+    # 3) Join + normalización
     df <- df %>%
+      dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio")) %>%
       dplyr::mutate(
-        .correo_flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
+        .flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
         Alerta = dplyr::case_when(
-          Dias_Transcurridos > 60 & (is.na(.correo_flag) | !.correo_flag) ~ "📧 Enviar correo de seguimiento",
+          Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "📧 Enviar correo de seguimiento",
           TRUE ~ ""
         ),
         Correo_Enviado = dplyr::case_when(
-          .correo_flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
+          .flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
             paste0("✅ Se envió correo (", as.character(Fecha_Correo_Seguimiento), ")"),
-          .correo_flag ~ "✅ Se envió correo",
+          .flag ~ "✅ Se envió correo",
           TRUE ~ ""
-        )
+        ),
+        # Clave única para saber exactamente qué fila marcó el usuario
+        RowKey = paste0(Nombre, "||", as.character(Fecha_Envio))
       ) %>%
-      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado)
+      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado, RowKey)
+
+    # Guardar la versión EXACTA que ve el usuario
+    seguimiento_view(df)
 
     datatable(
       df,
-      options = list(pageLength = 10, autoWidth = TRUE),
+      escape = FALSE,
+      options = list(
+        pageLength = 10,
+        autoWidth = TRUE,
+        # Ocultar la columna clave (última)
+        columnDefs = list(list(visible = FALSE, targets = ncol(df)))
+      ),
       rownames = FALSE,
       selection = "single",
       caption = htmltools::tags$caption(
@@ -3050,7 +3058,9 @@ server <- function(input, output, session) {
   # Marcar como enviado
   observeEvent(input$mark_followup_sent, {
     sel <- input$seguimiento_table_rows_selected
-    if (is.null(sel) || length(sel) == 0) {
+    cur <- seguimiento_view()
+
+    if (is.null(sel) || length(sel) == 0 || NROW(cur) < sel) {
       showModal(modalDialog(
         title = "Selecciona una fila",
         "Primero selecciona un envío en la tabla de seguimiento.",
@@ -3059,48 +3069,28 @@ server <- function(input, output, session) {
       return()
     }
 
-    # Recrear el mismo df que muestra la tabla para mapear bien el índice seleccionado
-    df_all <- project_data()
+    key <- cur$RowKey[sel]
+    parts <- strsplit(key, "\\|\\|")[[1]]
+    nombre_sel <- parts[1]
+    fecha_sel  <- parts[2]  # ya viene como "YYYY-MM-DD" en texto
 
-    df_seg <- df_all %>%
-      dplyr::filter(
-        Estado == "Enviado",
-        !is.na(Fecha_Envio),
-        Fecha_Envio != ""
-      ) %>%
-      dplyr::mutate(Fecha_Envio = as.Date(Fecha_Envio)) %>%
-      dplyr::mutate(
-        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
-        Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", "")
-      )
+    all <- project_data()
+    if (!"Correo_Seguimiento_Enviado" %in% names(all)) all$Correo_Seguimiento_Enviado <- NA
+    if (!"Fecha_Correo_Seguimiento" %in% names(all)) all$Fecha_Correo_Seguimiento <- NA
 
-    if (nrow(df_seg) < sel) {
-      showNotification("Selección inválida.", type = "error")
-      return()
-    }
-
-    fila <- df_seg[sel, ]  # fila seleccionada (con Fecha_Envio en Date)
-
-    # Asegurar columnas nuevas en el objeto base
-    if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
-    if (!"Fecha_Correo_Seguimiento" %in% names(df_all)) df_all$Fecha_Correo_Seguimiento <- NA
-
-    # Ubicar índice en project_data por Nombre + Fecha_Envio (guardada como character allí)
-    idx <- which(df_all$Nombre == fila$Nombre &
-                   df_all$Fecha_Envio == as.character(fila$Fecha_Envio))
-
+    idx <- which(all$Nombre == nombre_sel & all$Fecha_Envio == fecha_sel)
     if (length(idx) == 0) {
       showNotification("No se pudo ubicar la fila en los datos base.", type = "error")
       return()
     }
 
-    # Marcar y fechar
-    df_all$Correo_Seguimiento_Enviado[idx] <- TRUE
-    df_all$Fecha_Correo_Seguimiento[idx] <- as.character(Sys.Date())
+    # Marcar + fechar
+    all$Correo_Seguimiento_Enviado[idx] <- TRUE
+    all$Fecha_Correo_Seguimiento[idx]   <- as.character(Sys.Date())
 
-    # Guardar
-    res <- try(save_project_data(df_all), silent = TRUE)
-    project_data(df_all)
+    # Guardar y refrescar
+    res <- try(save_project_data(all), silent = TRUE)
+    project_data(all)
 
     if (!inherits(res, "try-error") && isTRUE(res$success)) {
       showNotification("✅ Marcado como 'correo enviado'.", type = "message")
@@ -3126,7 +3116,6 @@ server <- function(input, output, session) {
           Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days"))
         )
 
-      # Garantizar columnas en origen
       if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
       if (!"Fecha_Correo_Seguimiento" %in% names(df_all)) df_all$Fecha_Correo_Seguimiento <- NA
 
@@ -3141,21 +3130,19 @@ server <- function(input, output, session) {
       export <- base %>%
         dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio")) %>%
         dplyr::mutate(
-          .correo_flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
+          .flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
           Alerta = dplyr::case_when(
-            Dias_Transcurridos > 60 & (is.na(.correo_flag) | !.correo_flag) ~ "Enviar correo de seguimiento",
+            Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "Enviar correo de seguimiento",
             TRUE ~ ""
           ),
           Correo_Enviado = dplyr::case_when(
-            .correo_flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
+            .flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
               paste0("✅ Se envió correo (", as.character(Fecha_Correo_Seguimiento), ")"),
-            .correo_flag ~ "✅ Se envió correo",
+            .flag ~ "✅ Se envió correo",
             TRUE ~ ""
           )
         ) %>%
-        dplyr::select(
-          Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado
-        )
+        dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado)
 
       writexl::write_xlsx(export, path = file)
     }
