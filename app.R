@@ -2587,6 +2587,12 @@ server <- function(input, output, session) {
     }
 
     data <- project_data()
+
+    # Garantiza que exista la columna Envio_Correo
+    if (!("Envio_Correo" %in% names(data))) {
+      data$Envio_Correo <- rep(NA_character_, nrow(data))
+    }
+
     idx <- which(data$Nombre == input$project_name)
 
     fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
@@ -2693,13 +2699,16 @@ server <- function(input, output, session) {
     })
   })
 
-
-
   # Evento para confirmar guardado con advertencias
   observeEvent(input$confirm_save, {
     removeModal()
 
     data <- project_data()
+
+    # Garantiza que exista la columna Envio_Correo
+    if (!("Envio_Correo" %in% names(data))) {
+      data$Envio_Correo <- rep(NA_character_, nrow(data))
+    }
     idx <- which(data$Nombre == input$project_name)
 
     fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
@@ -2968,6 +2977,9 @@ server <- function(input, output, session) {
   seguimiento_df <- reactive({
     df <- project_data()
 
+    # 👇 NUEVO: si no existe, créala
+    if (!"Envio_Correo" %in% names(df)) df$Envio_Correo <- NA_character_
+
     df <- df %>%
       dplyr::filter(
         Estado == "Enviado",
@@ -2978,7 +2990,6 @@ server <- function(input, output, session) {
         Fecha_Envio = as.Date(Fecha_Envio),
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
         Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", ""),
-        # ID estable por fila (usa nombre + fecha) para inputs de Shiny
         CorreoID = paste0(
           "correo_",
           sapply(Nombre, sanitize_project_name),
@@ -2991,6 +3002,7 @@ server <- function(input, output, session) {
 
     df
   })
+
 
   # Lista de seguimiento (con columna "Se envió correo")
   output$seguimiento_table <- renderDT({
@@ -3036,6 +3048,7 @@ server <- function(input, output, session) {
     }
 
     data <- project_data()
+
     guardadas <- 0L
 
     for (i in seq_len(nrow(df_seg))) {
