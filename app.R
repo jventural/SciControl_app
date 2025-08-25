@@ -3007,16 +3007,14 @@ server <- function(input, output, session) {
   # Lista de seguimiento (con columna "Se envió correo")
   output$seguimiento_table <- renderDT({
     df <- seguimiento_df()
-
-    # Columna de selectInput, preseleccionando lo guardado si existe
     if (nrow(df) > 0) {
       df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
         as.character(
           selectInput(
-            inputId  = df$CorreoID[i],            # ID estable
+            inputId  = df$CorreoID[i],
             label    = NULL,
             choices  = c("NO", "SI"),
-            selected = df$Envio_Correo[i] %||% "",# preselección
+            selected = df$Envio_Correo[i] %||% "",
             width    = "90px"
           )
         )
@@ -3024,21 +3022,20 @@ server <- function(input, output, session) {
     } else {
       df[["Se envió correo"]] <- character(0)
     }
-
-    # Ocultamos columnas auxiliares
     df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
 
     datatable(
       df_show,
-      escape = FALSE,
-      options = list(pageLength = 10, autoWidth = TRUE),
+      escape   = FALSE,
+      options  = list(pageLength = 10, autoWidth = TRUE),
       rownames = FALSE,
-      caption = htmltools::tags$caption(
+      caption  = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
       )
     )
-  }, server = FALSE)
+  }, server = FALSE)   # <-- IMPORTANTE
+
 
   # Proxy para refrescar la tabla de seguimiento sin re-renderizarla completa
   seg_proxy <- dataTableProxy("seguimiento_table", session = session)
@@ -3054,9 +3051,11 @@ server <- function(input, output, session) {
     guardadas <- 0L
 
     for (i in seq_len(nrow(df_seg))) {
-      val <- input[[ df_seg$CorreoID[i] ]]
-      if (!is.null(val) && val %in% c("SI","NO")) {
-        # Match por Nombre + Fecha_Envio (más seguro que solo nombre)
+      # Si el input no existe o está NULL, usa lo que ya estaba guardado en Envio_Correo
+      val <- input[[ df_seg$CorreoID[i] ]] %||% (df_seg$Envio_Correo[i] %||% NA_character_)
+
+      if (!is.na(val) && val %in% c("SI","NO")) {
+        # Match por Nombre + Fecha_Envio (más seguro)
         idx <- which(
           data$Nombre == df_seg$Nombre[i] &
             as.character(data$Fecha_Envio) == as.character(df_seg$Fecha_Envio[i])
@@ -3072,36 +3071,9 @@ server <- function(input, output, session) {
       }
     }
 
-    # Persistir (Dropbox + local)
+    # Persistir (Dropbox + local) y disparar el re-render de la tabla
     res <- save_project_data(data)
-    project_data(data)
-
-    # 🔄 REFRESCAR LA TABLA SIN RE-RENDER COMPLETO
-    # reconstruimos el data.frame que muestra el DT (incluyendo los <select>)
-    df <- seguimiento_df()
-    if (nrow(df) > 0) {
-      df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
-        as.character(
-          selectInput(
-            inputId  = df$CorreoID[i],   # mismo id estable
-            label    = NULL,
-            choices  = c("NO", "SI"),
-            selected = df$Envio_Correo[i] %||% "",
-            width    = "90px"
-          )
-        )
-      }, character(1))
-    } else {
-      df[["Se envió correo"]] <- character(0)
-    }
-    # reemplazar los datos visibles (ocultamos columnas auxiliares)
-    replaceData(
-      seg_proxy,
-      df %>% dplyr::select(-Envio_Correo, -CorreoID),
-      resetPaging = FALSE,
-      rownames = FALSE
-    )
-    # 🔄 FIN REFRESCO
+    project_data(data)  # <- esto hace que seguimiento_df() y la tabla se redibujen
 
     if (isTRUE(res$success)) {
       showModal(modalDialog(
@@ -3126,6 +3098,7 @@ server <- function(input, output, session) {
       ))
     }
   })
+
 
 
   output$download_seguimiento <- downloadHandler(
