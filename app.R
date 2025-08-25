@@ -1466,8 +1466,7 @@ server <- function(input, output, session) {
   norm_estado <- function(x) tolower(trimws(as.character(x)))
   norm_date   <- function(x) suppressWarnings(as.Date(as.character(x)))
 
-  # tabla que ve el usuario (con RowKey)
-  seguimiento_view <- reactiveVal(data.frame())
+
 
 
 
@@ -2993,6 +2992,11 @@ server <- function(input, output, session) {
     })
   })
 
+
+  # Almacenar la vista de seguimiento para marcar/descargar
+  seguimiento_view <- reactiveVal(data.frame())
+
+
   # Lista de seguimiento
   output$seguimiento_table <- renderDT({
     df_all <- project_data()
@@ -3089,102 +3093,98 @@ server <- function(input, output, session) {
       return()
     }
 
-    key <- cur$RowKey[sel]
-    parts <- strsplit(key, "\\|\\|")[[1]]
+    selected_row <- cur[sel, ]
+    row_key <- selected_row$RowKey
+    parts <- strsplit(row_key, "\\|\\|")[[1]]
     nombre_sel <- parts[1]
-    fecha_sel  <- parts[2]  # "YYYY-MM-DD"
+    fecha_envio_sel <- parts[2]
 
-    all <- project_data()
-    if (!"Correo_Seguimiento_Enviado" %in% names(all)) all$Correo_Seguimiento_Enviado <- NA
-    if (!"Fecha_Correo_Seguimiento" %in% names(all))   all$Fecha_Correo_Seguimiento   <- NA
+    # Actualizar datos principales
+    df_all <- project_data()
+    match_idx <- which(
+      df_all$Nombre == nombre_sel &
+        suppressWarnings(as.character(as.Date(df_all$Fecha_Envio))) == fecha_envio_sel
+    )
 
-    # match robusto: misma normalización de fecha
-    idx <- which(all$Nombre == nombre_sel &
-                   as.character(norm_date(all$Fecha_Envio)) == fecha_sel)
+    if (length(match_idx) > 0) {
+      # Asegurar columnas existan
+      if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
+      if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
 
-    if (length(idx) == 0) {
-      showNotification("No se pudo ubicar la fila en los datos base.", type = "error")
-      return()
-    }
+      # Marcar como enviado
+      df_all[match_idx[1], "Correo_Seguimiento_Enviado"] <- "TRUE"
+      df_all[match_idx[1], "Fecha_Correo_Seguimiento"]   <- as.character(Sys.Date())
 
-    all$Correo_Seguimiento_Enviado[idx] <- TRUE
-    all$Fecha_Correo_Seguimiento[idx]   <- as.character(Sys.Date())
+      project_data(df_all)
+      result <- save_project_data(df_all)
 
-    res <- save_project_data(all)
-    project_data(all)  # refresca toda la app
-
-    if (isTRUE(res$success)) {
-      showNotification("✅ Marcado como 'correo enviado'.", type = "message")
+      if (result$success) {
+        showNotification("✅ Correo de seguimiento marcado como enviado", type = "message")
+      } else {
+        showNotification("❌ Error al guardar", type = "error")
+      }
     } else {
-      showNotification("⚠️ Marcado localmente (falló Dropbox).", type = "warning")
+      showNotification("❌ No se pudo encontrar el registro", type = "error")
     }
   })
 
 
   # Descargar seguimiento
   output$download_seguimiento <- downloadHandler(
-    filename = function() paste0("seguimiento_", Sys.Date(), ".xlsx"),
+    filename = function() {
+      paste0("seguimiento_", format(Sys.Date(), "%Y%m%d"), ".xlsx")
+    },
     content = function(file) {
-      view <- seguimiento_view()
+      # Recrear la misma vista pero sin RowKey para descarga
+      df_all <- project_data()
 
-      # Si la vista aún no está poblada, recalcúlala con la misma lógica
-      if (NROW(view) == 0) {
-        df_all <- project_data()
+      df0 <- df_all %>%
+        dplyr::mutate(
+          Estado_norm     = tolower(trimws(as.character(Estado))),
+          FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio)))
+        )
 
-        df0 <- df_all %>%
-          dplyr::mutate(
-            Estado_norm     = tolower(trimws(as.character(Estado))),
-            FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio)))
-          )
+      base <- df0 %>%
+        dplyr::filter(
+          !is.na(FechaEnvio_date),
+          Estado_norm %in% c("enviado","revision","revisión","aceptado","publicado") | is.na(Estado_norm)
+        )
 
-        base <- df0 %>%
-          dplyr::filter(
-            !is.na(FechaEnvio_date),
-            Estado_norm %in% c("enviado","revision","revisión","aceptado","publicado") | is.na(Estado_norm)
-          )
-        if (nrow(base) == 0) base <- df0 %>% dplyr::filter(!is.na(FechaEnvio_date))
-
-        if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
-        if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
-
-        aux <- df_all %>%
-          dplyr::transmute(
-            Nombre,
-            FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio))),
-            cse = Correo_Seguimiento_Enviado,
-            fcs = Fecha_Correo_Seguimiento
-          )
-
-        view <- base %>%
-          dplyr::left_join(aux, by = c("Nombre","FechaEnvio_date")) %>%
-          dplyr::mutate(
-            Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")),
-            .flag = as_bool_relaxed(cse),
-            Alerta = dplyr::case_when(
-              Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "Enviar correo de seguimiento",
-              TRUE ~ ""
-            ),
-            Correo_Enviado = dplyr::case_when(
-              .flag & !is.na(fcs) & fcs != "" ~ paste0("✅ Se envió correo (", as.character(fcs), ")"),
-              .flag ~ "✅ Se envió correo",
-              TRUE  ~ ""
-            )
-          ) %>%
-          dplyr::select(
-            Revista, Cuartil, Nombre,
-            Fecha_Envio = FechaEnvio_date,
-            Dias_Transcurridos, Alerta, Correo_Enviado
-          )
-      } else {
-        view <- view %>% dplyr::select(-RowKey)
+      if (nrow(base) == 0) {
+        base <- df0 %>% dplyr::filter(!is.na(FechaEnvio_date))
       }
 
-      writexl::write_xlsx(view, path = file)
+      if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
+      if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
+
+      aux <- df_all %>%
+        dplyr::transmute(
+          Nombre,
+          FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio))),
+          cse = Correo_Seguimiento_Enviado,
+          fcs = Fecha_Correo_Seguimiento
+        )
+
+      view <- base %>%
+        dplyr::left_join(aux, by = c("Nombre","FechaEnvio_date")) %>%
+        dplyr::mutate(
+          Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")),
+          .flag = as_bool_relaxed(cse),
+          Alerta = dplyr::case_when(
+            Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "Enviar correo de seguimiento",
+            TRUE ~ ""
+          ),
+          Correo_Enviado = dplyr::case_when(
+            .flag & !is.na(fcs) & fcs != "" ~ paste0("Se envió correo (", as.character(fcs), ")"),
+            .flag ~ "Se envió correo",
+            TRUE  ~ ""
+          )
+        ) %>%
+        dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio = FechaEnvio_date, Dias_Transcurridos, Alerta, Correo_Enviado)
+
+      writexl::write_xlsx(view, file)
     }
   )
-
-
-
 
   # Lista de archivos de backup
   output$backup_files_table <- renderDT({
