@@ -3009,6 +3009,8 @@ server <- function(input, output, session) {
 
   # Lista de seguimiento (con columna "Se envió correo")
   # Renderizar la tabla de seguimiento
+  # Corrección del error de styleInterval en output$seguimiento_table
+
   output$seguimiento_table <- renderDT({
     df <- seguimiento_df()
 
@@ -3056,10 +3058,10 @@ server <- function(input, output, session) {
       df[["Se envió correo"]] <- character(0)
     }
 
-    # Resto del código igual...
+    # Ocultar las columnas auxiliares
     df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
 
-    datatable(
+    dt <- datatable(
       df_show,
       escape = FALSE,
       options = list(
@@ -3075,15 +3077,26 @@ server <- function(input, output, session) {
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos desde el envío"
       )
-    ) %>%
-      formatStyle(
-        "Dias_Transcurridos",
-        target = "row",
-        backgroundColor = styleInterval(
-          c(30, 60, 90),
-          c("#ffffff", "#fff9c4", "#ffecb3", "#ffcdd2", "#ef5350")
+    )
+
+    # CORRECCIÓN: 3 cortes necesitan 4 colores
+    if (nrow(df_show) > 0 && "Dias_Transcurridos" %in% names(df_show)) {
+      dt <- dt %>%
+        formatStyle(
+          "Dias_Transcurridos",
+          target = "row",
+          backgroundColor = styleInterval(
+            c(30, 60, 90),  # 3 puntos de corte
+            c("#ffffff",    # 0-30 días: blanco
+              "#fff9c4",    # 30-60 días: amarillo claro
+              "#ffecb3",    # 60-90 días: naranja claro
+              "#ffcdd2")    # >90 días: rojo claro
+          )
         )
-      )
+    }
+
+    return(dt)
+
   }, server = FALSE)
 
   # Proxy para refrescar la tabla de seguimiento sin re-renderizarla completa
