@@ -2977,7 +2977,7 @@ server <- function(input, output, session) {
   output$seguimiento_table <- renderDT({
     df_all <- project_data()
 
-    # --- reconstrucción del df que muestra la tabla ---
+    # 1) Base: solo ENVIADOS con fecha válida
     df <- df_all %>%
       dplyr::filter(
         Estado == "Enviado",
@@ -2987,22 +2987,29 @@ server <- function(input, output, session) {
       dplyr::mutate(
         Fecha_Envio = as.Date(Fecha_Envio),
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days"))
-        # 👈 OJO: aquí ya NO calculamos Alerta todavía
       )
 
-    # columnas de seguimiento (si no existen, se crean vacías)
+    # 2) Preparar columnas de seguimiento en el origen (si no existen)
     pd <- df_all
     if (!"Correo_Seguimiento_Enviado" %in% names(pd)) pd$Correo_Seguimiento_Enviado <- NA
     if (!"Fecha_Correo_Seguimiento" %in% names(pd)) pd$Fecha_Correo_Seguimiento <- NA
 
     aux <- pd %>%
-      dplyr::select(Nombre, Fecha_Envio, Correo_Seguimiento_Enviado, Fecha_Correo_Seguimiento) %>%
-      dplyr::mutate(Fecha_Envio = as.Date(Fecha_Envio))
+      dplyr::transmute(
+        Nombre,
+        Fecha_Envio = as.Date(Fecha_Envio),
+        Correo_Seguimiento_Enviado,
+        Fecha_Correo_Seguimiento
+      )
 
+    # 3) Unir y GARANTIZAR columnas aunque no haya match
+    df <- df %>% dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio"))
+    if (!"Correo_Seguimiento_Enviado" %in% names(df)) df$Correo_Seguimiento_Enviado <- NA
+    if (!"Fecha_Correo_Seguimiento" %in% names(df)) df$Fecha_Correo_Seguimiento <- NA
+
+    # 4) Calcular Alerta con case_when y la marca de "Correo_Enviado"
     df <- df %>%
-      dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio")) %>%
       dplyr::mutate(
-        # ✅ aquí sí calculamos Alerta usando case_when (ya existe Correo_Seguimiento_Enviado)
         Alerta = dplyr::case_when(
           Dias_Transcurridos > 60 &
             (is.na(Correo_Seguimiento_Enviado) |
@@ -3017,7 +3024,19 @@ server <- function(input, output, session) {
         )
       ) %>%
       dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado)
+
+    datatable(
+      df,
+      options = list(pageLength = 10, autoWidth = TRUE),
+      rownames = FALSE,
+      selection = "single",
+      caption = htmltools::tags$caption(
+        style = 'caption-side: bottom; text-align: left;',
+        "Proyectos Enviados y días transcurridos"
+      )
+    )
   })
+
 
   # Marcar como enviado
   observeEvent(input$mark_followup_sent, {
