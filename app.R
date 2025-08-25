@@ -3002,34 +3002,34 @@ server <- function(input, output, session) {
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days"))
       )
 
-    # 2) Asegurar columnas de seguimiento en origen
+    # 2) Asegurar columnas en el origen (si no existen)
     if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
     if (!"Fecha_Correo_Seguimiento" %in% names(df_all)) df_all$Fecha_Correo_Seguimiento <- NA
 
+    # 3) Armar AUX con ALIAS (cse/fcs) para evitar "no encontrado" en mutate
     aux <- df_all %>%
       dplyr::transmute(
         Nombre,
         Fecha_Envio = as.Date(Fecha_Envio),
-        Correo_Seguimiento_Enviado,
-        Fecha_Correo_Seguimiento
+        cse = Correo_Seguimiento_Enviado,
+        fcs = Fecha_Correo_Seguimiento
       )
 
-    # 3) Join + normalización
+    # 4) Unir + calcular usando ALIAS
     df <- df %>%
       dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio")) %>%
       dplyr::mutate(
-        .flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
+        .flag = as_bool_relaxed(cse),
         Alerta = dplyr::case_when(
           Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "📧 Enviar correo de seguimiento",
           TRUE ~ ""
         ),
         Correo_Enviado = dplyr::case_when(
-          .flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
-            paste0("✅ Se envió correo (", as.character(Fecha_Correo_Seguimiento), ")"),
+          .flag & !is.na(fcs) & fcs != "" ~ paste0("✅ Se envió correo (", as.character(fcs), ")"),
           .flag ~ "✅ Se envió correo",
           TRUE ~ ""
         ),
-        # Clave única para saber exactamente qué fila marcó el usuario
+        # Clave oculta para mapear la selección del usuario
         RowKey = paste0(Nombre, "||", as.character(Fecha_Envio))
       ) %>%
       dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta, Correo_Enviado, RowKey)
@@ -3043,8 +3043,7 @@ server <- function(input, output, session) {
       options = list(
         pageLength = 10,
         autoWidth = TRUE,
-        # Ocultar la columna clave (última)
-        columnDefs = list(list(visible = FALSE, targets = ncol(df)))
+        columnDefs = list(list(visible = FALSE, targets = ncol(df))) # oculta RowKey
       ),
       rownames = FALSE,
       selection = "single",
@@ -3123,21 +3122,20 @@ server <- function(input, output, session) {
         dplyr::transmute(
           Nombre,
           Fecha_Envio = as.Date(Fecha_Envio),
-          Correo_Seguimiento_Enviado,
-          Fecha_Correo_Seguimiento
+          cse = Correo_Seguimiento_Enviado,
+          fcs = Fecha_Correo_Seguimiento
         )
 
       export <- base %>%
         dplyr::left_join(aux, by = c("Nombre", "Fecha_Envio")) %>%
         dplyr::mutate(
-          .flag = as_bool_relaxed(Correo_Seguimiento_Enviado),
+          .flag = as_bool_relaxed(cse),
           Alerta = dplyr::case_when(
             Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "Enviar correo de seguimiento",
             TRUE ~ ""
           ),
           Correo_Enviado = dplyr::case_when(
-            .flag & !is.na(Fecha_Correo_Seguimiento) & Fecha_Correo_Seguimiento != "" ~
-              paste0("✅ Se envió correo (", as.character(Fecha_Correo_Seguimiento), ")"),
+            .flag & !is.na(fcs) & fcs != "" ~ paste0("✅ Se envió correo (", as.character(fcs), ")"),
             .flag ~ "✅ Se envió correo",
             TRUE ~ ""
           )
@@ -3147,6 +3145,7 @@ server <- function(input, output, session) {
       writexl::write_xlsx(export, path = file)
     }
   )
+
 
   # Lista de archivos de backup
   output$backup_files_table <- renderDT({
