@@ -1074,6 +1074,13 @@ ui <- dashboardPage(
   dashboardBody(
     tags$head(
       tags$style(HTML("
+      /* Fix: el texto del <select> se ponía blanco al seleccionar la fila del DT */
+      table.dataTable tbody tr.selected select,
+      table.dataTable tbody tr.selected .form-control,
+      table.dataTable tbody tr.selected option {
+        color: #212529 !important;          /* texto oscuro, visible */
+        background-color: #ffffff !important;
+      }
     .skin-blue .main-header .logo { background-color: #003366; color: white; }
     .skin-blue .main-sidebar { background-color: #004c99; }
     .box { background-color: #f4f4f9; }
@@ -1110,8 +1117,7 @@ ui <- dashboardPage(
       0% { background-color: #28a745; }
       50% { background-color: #34ce57; }
       100% { background-color: #28a745; }
-    }
-  ")),
+    }")),
 
       # JavaScript para manejar doble clic en el título
       tags$script(HTML("
@@ -1120,6 +1126,7 @@ ui <- dashboardPage(
             $('#developer-auth-modal').modal('show');
           });
         });
+
       "))
     ),
     tabItems(
@@ -2993,7 +3000,7 @@ server <- function(input, output, session) {
           selectInput(
             inputId = paste0("correo_", i),
             label   = NULL,
-            choices = c("SI", "NO"),
+            choices = c("NO", "SI"),
             selected = NULL,
             width   = "90px"
           )
@@ -3005,9 +3012,10 @@ server <- function(input, output, session) {
 
     datatable(
       df,
-      escape = FALSE,                    # necesario para que se rendericen los selectInput
+      escape = FALSE,
       options = list(pageLength = 10, autoWidth = TRUE),
       rownames = FALSE,
+      selection = 'none',   # <— opcional: desactiva selección de filas
       caption = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
