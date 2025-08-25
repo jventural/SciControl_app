@@ -1231,6 +1231,9 @@ ui <- dashboardPage(
           box(
             title = "Seguimiento de Envíos",
             width = 12, status = "warning",
+            div(style = "display:flex; gap:8px; align-items:center; margin-bottom:8px;",
+                downloadButton("download_seguimiento", "⬇️ Descargar Excel", class = "btn-primary")
+            ),
             DTOutput("seguimiento_table")
           )
         )
@@ -2960,29 +2963,49 @@ server <- function(input, output, session) {
   })
 
   # Lista de seguimiento
-  output$seguimiento_table <- renderDT({
+  seguimiento_df <- reactive({
     df <- project_data()
 
-    # 2) Filtrar solo proyectos ENVIADOS con Fecha_Envio definida
     df <- df %>%
-      filter(
+      dplyr::filter(
         Estado == "Enviado",
         !is.na(Fecha_Envio),
         Fecha_Envio != ""
-      )
-
-    # 3) Calcular días transcurridos y alerta
-    df <- df %>%
-      mutate(
+      ) %>%
+      dplyr::mutate(
         Fecha_Envio = as.Date(Fecha_Envio),
         Dias_Transcurridos = as.numeric(difftime(Sys.Date(), Fecha_Envio, units = "days")),
         Alerta = ifelse(Dias_Transcurridos > 60, "📧 Enviar correo de seguimiento", "")
       ) %>%
-      select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta)
+      dplyr::select(Revista, Cuartil, Nombre, Fecha_Envio, Dias_Transcurridos, Alerta)
 
-    # 4) Mostrar tabla
+    df
+  })
+
+  # Lista de seguimiento (con columna "Se envió correo")
+  output$seguimiento_table <- renderDT({
+    df <- seguimiento_df()
+
+    # Agregar columna con selectInput SI/NO por fila
+    if (nrow(df) > 0) {
+      df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
+        as.character(
+          selectInput(
+            inputId = paste0("correo_", i),
+            label   = NULL,
+            choices = c("SI", "NO"),
+            selected = NULL,
+            width   = "90px"
+          )
+        )
+      }, character(1))
+    } else {
+      df[["Se envió correo"]] <- character(0)
+    }
+
     datatable(
       df,
+      escape = FALSE,                    # necesario para que se rendericen los selectInput
       options = list(pageLength = 10, autoWidth = TRUE),
       rownames = FALSE,
       caption = htmltools::tags$caption(
@@ -2991,6 +3014,24 @@ server <- function(input, output, session) {
       )
     )
   })
+
+  output$download_seguimiento <- downloadHandler(
+    filename = function() paste0("seguimiento_", Sys.Date(), ".xlsx"),
+    content = function(file) {
+      df <- seguimiento_df()
+
+      # Leer valores elegidos en los selectInput (SI/NO) si existen
+      if (nrow(df) > 0) {
+        df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
+          input[[paste0("correo_", i)]] %||% ""
+        }, character(1))
+      } else {
+        df[["Se envió correo"]] <- character(0)
+      }
+
+      writexl::write_xlsx(df, file)
+    }
+  )
 
   # Lista de archivos de backup
   output$backup_files_table <- renderDT({
