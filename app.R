@@ -2997,33 +2997,47 @@ server <- function(input, output, session) {
   output$seguimiento_table <- renderDT({
     df_all <- project_data()
 
-    # Base: normaliza estado y fecha de envío
-    base <- df_all %>%
+    # Normaliza estado y fecha (tolerante a espacios/case y a formatos de fecha)
+    df0 <- df_all %>%
       dplyr::mutate(
-        Estado_norm     = norm_estado(Estado),
-        FechaEnvio_date = norm_date(Fecha_Envio)
-      ) %>%
-      dplyr::filter(Estado_norm == "enviado", !is.na(FechaEnvio_date))
+        Estado_norm     = tolower(trimws(as.character(Estado))),
+        FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio)))
+      )
 
-    # Garantiza columnas de seguimiento en el origen
+    # Filtro principal: cualquier fila con Fecha_Envio válida,
+    # priorizando estados típicos del flujo de envío
+    base <- df0 %>%
+      dplyr::filter(
+        !is.na(FechaEnvio_date),
+        Estado_norm %in% c("enviado","revision","revisión","aceptado","publicado") | is.na(Estado_norm)
+      )
+
+    # Si por alguna razón quedó vacío, fallback: solo fecha válida
+    if (nrow(base) == 0) {
+      base <- df0 %>% dplyr::filter(!is.na(FechaEnvio_date))
+    }
+
+    # Asegura columnas de seguimiento en el origen
     if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
     if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
 
-    # Aux con ALIAS + misma clave de unión (Nombre + fecha ya parseada)
+    # AUX con alias estables (evita "objeto no encontrado" en mutate)
     aux <- df_all %>%
       dplyr::transmute(
         Nombre,
-        FechaEnvio_date = norm_date(Fecha_Envio),
+        FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio))),
         cse = Correo_Seguimiento_Enviado,
         fcs = Fecha_Correo_Seguimiento
       )
 
+    # Unión por clave robusta (Nombre + fecha parseada)
     df <- base %>%
       dplyr::left_join(aux, by = c("Nombre","FechaEnvio_date")) %>%
       dplyr::mutate(
+        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")),
         .flag = as_bool_relaxed(cse),
         Alerta = dplyr::case_when(
-          as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")) > 60 & (is.na(.flag) | !.flag) ~ "📧 Enviar correo de seguimiento",
+          Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "📧 Enviar correo de seguimiento",
           TRUE ~ ""
         ),
         Correo_Enviado = dplyr::case_when(
@@ -3031,14 +3045,15 @@ server <- function(input, output, session) {
           .flag ~ "✅ Se envió correo",
           TRUE  ~ ""
         ),
-        Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")),
         RowKey = paste0(Nombre, "||", as.character(FechaEnvio_date))
       ) %>%
-      dplyr::select(Revista, Cuartil, Nombre,
-                    Fecha_Envio = FechaEnvio_date,
-                    Dias_Transcurridos, Alerta, Correo_Enviado, RowKey)
+      dplyr::select(
+        Revista, Cuartil, Nombre,
+        Fecha_Envio = FechaEnvio_date,
+        Dias_Transcurridos, Alerta, Correo_Enviado, RowKey
+      )
 
-    # guarda EXACTAMENTE lo que ve el usuario
+    # Guarda exactamente lo que ve el usuario (para marcar/descargar)
     seguimiento_view(df)
 
     datatable(
@@ -3057,6 +3072,7 @@ server <- function(input, output, session) {
       )
     )
   })
+
 
 
   # Marcar como enviado
@@ -3110,15 +3126,23 @@ server <- function(input, output, session) {
     filename = function() paste0("seguimiento_", Sys.Date(), ".xlsx"),
     content = function(file) {
       view <- seguimiento_view()
+
+      # Si la vista aún no está poblada, recalcúlala con la misma lógica
       if (NROW(view) == 0) {
-        # Si la vista aún no está poblada (p.ej. app recién cargada), recalcula rápido
         df_all <- project_data()
-        base <- df_all %>%
+
+        df0 <- df_all %>%
           dplyr::mutate(
-            Estado_norm     = norm_estado(Estado),
-            FechaEnvio_date = norm_date(Fecha_Envio)
-          ) %>%
-          dplyr::filter(Estado_norm == "enviado", !is.na(FechaEnvio_date))
+            Estado_norm     = tolower(trimws(as.character(Estado))),
+            FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio)))
+          )
+
+        base <- df0 %>%
+          dplyr::filter(
+            !is.na(FechaEnvio_date),
+            Estado_norm %in% c("enviado","revision","revisión","aceptado","publicado") | is.na(Estado_norm)
+          )
+        if (nrow(base) == 0) base <- df0 %>% dplyr::filter(!is.na(FechaEnvio_date))
 
         if (!"Correo_Seguimiento_Enviado" %in% names(df_all)) df_all$Correo_Seguimiento_Enviado <- NA
         if (!"Fecha_Correo_Seguimiento" %in% names(df_all))   df_all$Fecha_Correo_Seguimiento   <- NA
@@ -3126,7 +3150,7 @@ server <- function(input, output, session) {
         aux <- df_all %>%
           dplyr::transmute(
             Nombre,
-            FechaEnvio_date = norm_date(Fecha_Envio),
+            FechaEnvio_date = suppressWarnings(as.Date(as.character(Fecha_Envio))),
             cse = Correo_Seguimiento_Enviado,
             fcs = Fecha_Correo_Seguimiento
           )
@@ -3134,29 +3158,31 @@ server <- function(input, output, session) {
         view <- base %>%
           dplyr::left_join(aux, by = c("Nombre","FechaEnvio_date")) %>%
           dplyr::mutate(
+            Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")),
             .flag = as_bool_relaxed(cse),
             Alerta = dplyr::case_when(
-              as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days")) > 60 & (is.na(.flag) | !.flag) ~ "Enviar correo de seguimiento",
+              Dias_Transcurridos > 60 & (is.na(.flag) | !.flag) ~ "Enviar correo de seguimiento",
               TRUE ~ ""
             ),
             Correo_Enviado = dplyr::case_when(
               .flag & !is.na(fcs) & fcs != "" ~ paste0("✅ Se envió correo (", as.character(fcs), ")"),
               .flag ~ "✅ Se envió correo",
               TRUE  ~ ""
-            ),
-            Dias_Transcurridos = as.numeric(difftime(Sys.Date(), FechaEnvio_date, units = "days"))
+            )
           ) %>%
-          dplyr::select(Revista, Cuartil, Nombre,
-                        Fecha_Envio = FechaEnvio_date,
-                        Dias_Transcurridos, Alerta, Correo_Enviado)
+          dplyr::select(
+            Revista, Cuartil, Nombre,
+            Fecha_Envio = FechaEnvio_date,
+            Dias_Transcurridos, Alerta, Correo_Enviado
+          )
       } else {
-        # usa la vista directa y quita RowKey
         view <- view %>% dplyr::select(-RowKey)
       }
 
       writexl::write_xlsx(view, path = file)
     }
   )
+
 
 
 
