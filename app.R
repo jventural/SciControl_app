@@ -3015,7 +3015,7 @@ server <- function(input, output, session) {
           selectInput(
             inputId  = df$CorreoID[i],            # ID estable
             label    = NULL,
-            choices  = c("SI", "NO"),
+            choices  = c("NO", "SI"),
             selected = df$Envio_Correo[i] %||% "",# preselección
             width    = "90px"
           )
