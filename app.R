@@ -3013,27 +3013,32 @@ server <- function(input, output, session) {
     df <- seguimiento_df()
 
     if (nrow(df) > 0) {
-      # Crear los selectInput con tres opciones
+      # Crear los selectInput con tres opciones EN MAYÚSCULAS
       df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
         # Determinar el valor actual
         valor_actual <- if(!is.na(df$Envio_Correo[i]) && df$Envio_Correo[i] != "") {
-          # Normalizar valores antiguos
+          # Normalizar valores guardados
           valor_normalizado <- toupper(trimws(df$Envio_Correo[i]))
-          if(valor_normalizado == "SI" || valor_normalizado == "SÍ") {
-            "Sí"
+          if(valor_normalizado %in% c("SI", "SÍ")) {
+            "SI"
           } else if(valor_normalizado == "NO") {
-            "No"
+            "NO"
           } else if(grepl("AÚN NO|AUN NO|NECESARIO", valor_normalizado, ignore.case = TRUE)) {
-            "Aún no es necesario"
+            "AUN NO ES NECESARIO"
           } else {
-            df$Envio_Correo[i]  # Mantener valor original si no coincide
+            # Si es exactamente una de las opciones nuevas, usarla
+            if(df$Envio_Correo[i] %in% c("NO", "SI", "AUN NO ES NECESARIO")) {
+              df$Envio_Correo[i]
+            } else {
+              "NO"  # Valor por defecto
+            }
           }
         } else {
           # Valor por defecto basado en días transcurridos
           if(df$Dias_Transcurridos[i] <= 30) {
-            "Aún no es necesario"
+            "AUN NO ES NECESARIO"
           } else {
-            "No"
+            "NO"
           }
         }
 
@@ -3041,9 +3046,9 @@ server <- function(input, output, session) {
           selectInput(
             inputId = df$CorreoID[i],
             label = NULL,
-            choices = c("No", "Sí", "Aún no es necesario"),
+            choices = c("NO", "SI", "AUN NO ES NECESARIO"),  # EN MAYÚSCULAS
             selected = valor_actual,
-            width = "150px"  # Aumentar ancho para la opción más larga
+            width = "180px"  # Un poco más ancho
           )
         )
       }, character(1))
@@ -3051,7 +3056,7 @@ server <- function(input, output, session) {
       df[["Se envió correo"]] <- character(0)
     }
 
-    # Ocultar las columnas auxiliares
+    # Resto del código igual...
     df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
 
     datatable(
@@ -3060,11 +3065,9 @@ server <- function(input, output, session) {
       options = list(
         pageLength = 10,
         autoWidth = TRUE,
-        # Callback para registrar los inputs dinámicos
         drawCallback = JS('function() { Shiny.bindAll(this.api().table().node()); }'),
-        # Opciones adicionales para mejorar la visualización
         columnDefs = list(
-          list(width = '150px', targets = 6)  # Columna "Se envió correo"
+          list(width = '180px', targets = 6)
         )
       ),
       rownames = FALSE,
@@ -3073,7 +3076,6 @@ server <- function(input, output, session) {
         "Proyectos Enviados y días transcurridos desde el envío"
       )
     ) %>%
-      # Colorear filas según urgencia
       formatStyle(
         "Dias_Transcurridos",
         target = "row",
@@ -3110,14 +3112,19 @@ server <- function(input, output, session) {
     valores_guardados <- list()
     no_detectados <- 0L
 
-    # Opciones válidas actualizadas
-    opciones_validas <- c("No", "Sí", "Aún no es necesario")
+    # Opciones válidas EN MAYÚSCULAS para coincidir con los inputs
+    opciones_validas <- c("NO", "SI", "AUN NO ES NECESARIO")
+
+    cat("=== GUARDANDO SEGUIMIENTO ===\n")
+    cat("IDs esperados:", paste(df_seg$CorreoID, collapse = ", "), "\n")
 
     for (i in seq_len(nrow(df_seg))) {
       correo_id <- df_seg$CorreoID[i]
 
       # Intentar obtener el valor del input
       val <- input[[correo_id]]
+
+      cat("Input", correo_id, "=", val, "\n")
 
       # Validar que el valor esté en las opciones válidas
       if (!is.null(val) && val %in% opciones_validas) {
@@ -3137,20 +3144,23 @@ server <- function(input, output, session) {
           data$Envio_Correo[idx[1]] <- val
           valores_guardados[[df_seg$Nombre[i]]] <- val
           guardadas <- guardadas + 1L
+          cat("Guardado:", df_seg$Nombre[i], "=", val, "\n")
         }
       } else {
         no_detectados <- no_detectados + 1L
+        cat("NO guardado (valor no válido o NULL):", correo_id, "\n")
       }
     }
+
+    cat("=== RESUMEN: Guardados =", guardadas, ", No detectados =", no_detectados, "===\n")
 
     # Mensajes de feedback mejorados
     if (guardadas == 0 && no_detectados > 0) {
       showModal(modalDialog(
         title = "⚠️ Sin cambios detectados",
         HTML(paste0(
-          "No se detectaron cambios para guardar.<br>",
-          "<small>Asegúrese de seleccionar una opción válida: ",
-          "<strong>No</strong>, <strong>Sí</strong>, o <strong>Aún no es necesario</strong>.</small>"
+          "No se detectaron cambios válidos para guardar.<br>",
+          "<small>Valores esperados: <strong>NO</strong>, <strong>SI</strong>, o <strong>AUN NO ES NECESARIO</strong>.</small>"
         )),
         easyClose = TRUE,
         footer = modalButton("Cerrar")
@@ -3172,17 +3182,24 @@ server <- function(input, output, session) {
     res <- save_project_data(data)
     project_data(data)
 
-    # Crear resumen para mostrar
+    # Crear resumen para mostrar con emojis apropiados
     resumen_html <- paste(
       lapply(names(valores_guardados), function(nombre) {
         valor <- valores_guardados[[nombre]]
         icono <- switch(valor,
-                        "Sí" = "✅",
-                        "No" = "❌",
-                        "Aún no es necesario" = "⏰",
+                        "SI" = "✅",
+                        "NO" = "❌",
+                        "AUN NO ES NECESARIO" = "⏰",
                         "❓"
         )
-        sprintf("<li>%s %s: <strong>%s</strong></li>", icono, nombre, valor)
+        # Mostrar el valor de forma más amigable en el modal
+        valor_display <- switch(valor,
+                                "SI" = "Sí",
+                                "NO" = "No",
+                                "AUN NO ES NECESARIO" = "Aún no es necesario",
+                                valor
+        )
+        sprintf("<li>%s %s: <strong>%s</strong></li>", icono, nombre, valor_display)
       }),
       collapse = ""
     )
