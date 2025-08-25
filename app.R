@@ -3007,14 +3007,15 @@ server <- function(input, output, session) {
   # Lista de seguimiento (con columna "Se envió correo")
   output$seguimiento_table <- renderDT({
     df <- seguimiento_df()
+
     if (nrow(df) > 0) {
       df[["Se envió correo"]] <- vapply(seq_len(nrow(df)), function(i) {
         as.character(
           selectInput(
-            inputId  = df$CorreoID[i],
+            inputId  = df$CorreoID[i],      # ID estable
             label    = NULL,
             choices  = c("NO", "SI"),
-            selected = df$Envio_Correo[i] %||% "",
+            selected = df$Envio_Correo[i] %||% "",  # si no hay valor, queda vacío
             width    = "90px"
           )
         )
@@ -3022,6 +3023,7 @@ server <- function(input, output, session) {
     } else {
       df[["Se envió correo"]] <- character(0)
     }
+
     df_show <- df %>% dplyr::select(-Envio_Correo, -CorreoID)
 
     datatable(
@@ -3032,9 +3034,18 @@ server <- function(input, output, session) {
       caption  = htmltools::tags$caption(
         style = 'caption-side: bottom; text-align: left;',
         "Proyectos Enviados y días transcurridos"
+      ),
+      # ⬇️ Enlaza los <select> con Shiny al cambiar
+      callback = JS(
+        "table.on('change', 'select', function(){",
+        "  var id  = $(this).attr('id');",
+        "  var val = $(this).val();",
+        "  Shiny.setInputValue(id, val, {priority: 'event'});",
+        "});"
       )
     )
-  }, server = FALSE)   # <-- IMPORTANTE
+  }, server = FALSE)   # ⬅️ MUY IMPORTANTE
+
 
 
   # Proxy para refrescar la tabla de seguimiento sin re-renderizarla completa
@@ -3051,19 +3062,15 @@ server <- function(input, output, session) {
     guardadas <- 0L
 
     for (i in seq_len(nrow(df_seg))) {
-      # Si el input no existe o está NULL, usa lo que ya estaba guardado en Envio_Correo
+      # si el select no fue tocado (NULL), usa el ya guardado
       val <- input[[ df_seg$CorreoID[i] ]] %||% (df_seg$Envio_Correo[i] %||% NA_character_)
-
       if (!is.na(val) && val %in% c("SI","NO")) {
-        # Match por Nombre + Fecha_Envio (más seguro)
+        # match por Nombre + Fecha_Envio
         idx <- which(
           data$Nombre == df_seg$Nombre[i] &
             as.character(data$Fecha_Envio) == as.character(df_seg$Fecha_Envio[i])
         )
-        if (length(idx) == 0) {
-          # fallback: por Nombre
-          idx <- which(data$Nombre == df_seg$Nombre[i])
-        }
+        if (length(idx) == 0) idx <- which(data$Nombre == df_seg$Nombre[i]) # fallback
         if (length(idx) > 0) {
           data$Envio_Correo[idx[1]] <- val
           guardadas <- guardadas + 1L
@@ -3071,9 +3078,9 @@ server <- function(input, output, session) {
       }
     }
 
-    # Persistir (Dropbox + local) y disparar el re-render de la tabla
+    # Persistir y volver a dibujar la tabla (seguimiento_df depende de project_data)
     res <- save_project_data(data)
-    project_data(data)  # <- esto hace que seguimiento_df() y la tabla se redibujen
+    project_data(data)
 
     if (isTRUE(res$success)) {
       showModal(modalDialog(
@@ -3098,6 +3105,7 @@ server <- function(input, output, session) {
       ))
     }
   })
+
 
 
 
