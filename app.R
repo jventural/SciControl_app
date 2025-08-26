@@ -2588,7 +2588,7 @@ server <- function(input, output, session) {
 
     data <- project_data()
 
-    # Garantiza que exista la columna Envio_Correo
+    # IMPORTANTE: Garantiza que exista la columna Envio_Correo en el dataframe existente
     if (!("Envio_Correo" %in% names(data))) {
       data$Envio_Correo <- rep(NA_character_, nrow(data))
     }
@@ -2611,13 +2611,16 @@ server <- function(input, output, session) {
 
     prog <- progress_map[[input$status]]
 
-    # 🔹 NUEVO: conservar el valor previo de 'Envio_Correo' si existe
-    envio_correo_val <- if ("Envio_Correo" %in% names(data) && length(idx) > 0) {
+    # IMPORTANTE: conservar el valor previo de 'Envio_Correo' si el proyecto existe
+    envio_correo_val <- if (length(idx) > 0 && "Envio_Correo" %in% names(data)) {
+      # Si el proyecto existe, mantener su valor de Envio_Correo
       as.character(data$Envio_Correo[idx][1])
     } else {
+      # Si es un proyecto nuevo, valor por defecto
       NA_character_
     }
 
+    # IMPORTANTE: new_row DEBE incluir la columna Envio_Correo
     new_row <- data.frame(
       Nombre = as.character(input$project_name),
       Fecha_Inicio = fecha_inicio,
@@ -2632,7 +2635,7 @@ server <- function(input, output, session) {
       Fecha_Publicado = fecha_pub,
       Linea_Investigacion = as.character(input$research_line %||% ""),
       Observaciones = as.character(input$observations %||% ""),
-      Envio_Correo = envio_correo_val,   # ← NUEVO
+      Envio_Correo = envio_correo_val,   # CRUCIAL: incluir esta columna
       stringsAsFactors = FALSE
     )
 
@@ -2699,16 +2702,18 @@ server <- function(input, output, session) {
     })
   })
 
+
   # Evento para confirmar guardado con advertencias
   observeEvent(input$confirm_save, {
     removeModal()
 
     data <- project_data()
 
-    # Garantiza que exista la columna Envio_Correo
+    # IMPORTANTE: Garantiza que exista la columna Envio_Correo
     if (!("Envio_Correo" %in% names(data))) {
       data$Envio_Correo <- rep(NA_character_, nrow(data))
     }
+
     idx <- which(data$Nombre == input$project_name)
 
     fecha_inicio <- if (!is.null(input$start_date)) as.character(input$start_date) else NA_character_
@@ -2727,8 +2732,8 @@ server <- function(input, output, session) {
 
     prog <- progress_map[[input$status]]
 
-    # 🔹 NUEVO: conservar el valor previo de 'Envio_Correo' si existe
-    envio_correo_val <- if ("Envio_Correo" %in% names(data) && length(idx) > 0) {
+    # IMPORTANTE: conservar el valor previo de 'Envio_Correo' si existe
+    envio_correo_val <- if (length(idx) > 0 && "Envio_Correo" %in% names(data)) {
       as.character(data$Envio_Correo[idx][1])
     } else {
       NA_character_
@@ -2748,7 +2753,7 @@ server <- function(input, output, session) {
       Fecha_Publicado = fecha_pub,
       Linea_Investigacion = as.character(input$research_line %||% ""),
       Observaciones = as.character(input$observations %||% ""),
-      Envio_Correo = envio_correo_val,   # ← NUEVO
+      Envio_Correo = envio_correo_val,   # CRUCIAL: incluir esta columna
       stringsAsFactors = FALSE
     )
 
