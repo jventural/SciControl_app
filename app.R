@@ -773,18 +773,24 @@ load_data_from_dropbox <- function() {
       project_data <- read_excel(temp_file)
       unlink(temp_file)
 
+      # ACTUALIZADO: Incluir Envio_Correo en las columnas requeridas
       required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                             "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
                             "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
-                            "Observaciones")
+                            "Observaciones", "Envio_Correo")
 
       missing_columns <- setdiff(required_columns, colnames(project_data))
       if (length(missing_columns) > 0) {
         for (col in missing_columns) {
-          project_data[[col]] <- NA
+          if (col == "Progreso") {
+            project_data[[col]] <- NA_real_  # Progreso es numérico
+          } else {
+            project_data[[col]] <- NA_character_  # Las demás son character
+          }
         }
       }
 
+      # Procesar fechas
       date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                         "Fecha_Aceptado", "Fecha_Publicado")
 
@@ -808,6 +814,9 @@ load_data_from_dropbox <- function() {
       if ("Progreso" %in% colnames(project_data)) {
         project_data$Progreso <- as.numeric(project_data$Progreso)
       }
+
+      # IMPORTANTE: Asegurar el orden correcto de columnas
+      project_data <- project_data[, required_columns]
 
       project_data <- as.data.frame(project_data, stringsAsFactors = FALSE)
       return(project_data)
@@ -840,11 +849,12 @@ create_initial_data_structure <- function() {
     Fecha_Publicado = character(),
     Linea_Investigacion = character(),
     Observaciones = character(),
-    Envio_Correo = character(),      # <— NUEVA
+    Envio_Correo = character(),      # IMPORTANTE: Esta columna DEBE estar aquí
     stringsAsFactors = FALSE
   )
   return(project_data)
 }
+
 
 # Configurar límite de tamaño de archivo
 options(shiny.maxRequestSize = 100*1024^2)
@@ -3535,10 +3545,11 @@ server <- function(input, output, session) {
 
       imported_data <- read_excel(input$excel_upload$datapath, sheet = project_sheet)
 
+      # ACTUALIZADO: Incluir Envio_Correo
       required_columns <- c("Nombre", "Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                             "Revista", "Cuartil", "Estado", "Grupo", "Progreso",
                             "Fecha_Aceptado", "Fecha_Publicado", "Linea_Investigacion",
-                            "Observaciones","Envio_Correo")
+                            "Observaciones", "Envio_Correo")
 
       if (!"Nombre" %in% colnames(imported_data)) {
         output$import_status <- renderText("❌ El archivo debe contener al menos una columna 'Nombre'.")
@@ -3548,10 +3559,15 @@ server <- function(input, output, session) {
       missing_columns <- setdiff(required_columns, colnames(imported_data))
       if (length(missing_columns) > 0) {
         for (col in missing_columns) {
-          imported_data[[col]] <- NA
+          if (col == "Progreso") {
+            imported_data[[col]] <- NA_real_
+          } else {
+            imported_data[[col]] <- NA_character_
+          }
         }
       }
 
+      # Procesar fechas
       date_columns <- c("Fecha_Inicio", "Fecha_Envio", "Fecha_Respuesta",
                         "Fecha_Aceptado", "Fecha_Publicado")
 
@@ -3576,6 +3592,7 @@ server <- function(input, output, session) {
         imported_data$Progreso <- as.numeric(imported_data$Progreso)
       }
 
+      # IMPORTANTE: Seleccionar columnas en el orden correcto
       imported_data <- as.data.frame(imported_data[, required_columns], stringsAsFactors = FALSE)
 
       save_result <- save_project_data(imported_data)
@@ -3618,6 +3635,8 @@ server <- function(input, output, session) {
       ))
     })
   })
+
+
 }
 
 # ============================================================================
